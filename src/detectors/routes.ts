@@ -109,7 +109,18 @@ export async function detectRoutes(
     }
   }
 
-  return routes;
+  // Deduplicate: same method + path from different files/frameworks
+  const seen = new Set<string>();
+  const deduped: RouteInfo[] = [];
+  for (const route of routes) {
+    const key = `${route.method}:${route.path}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduped.push(route);
+    }
+  }
+
+  return deduped;
 }
 
 // --- Next.js App Router ---
@@ -1081,7 +1092,6 @@ async function detectRawHttpRoutes(
 ): Promise<RouteInfo[]> {
   const tsFiles = files.filter((f) => f.match(/\.(ts|js|mjs|cjs)$/));
   const routes: RouteInfo[] = [];
-  const globalSeen = new Set<string>();
 
   for (const file of tsFiles) {
     const content = await readFileSafe(file);
@@ -1110,17 +1120,16 @@ async function detectRawHttpRoutes(
         // Skip file extensions
         if (path.match(/\.\w{2,4}$/)) continue;
 
-        const key = `${rel}:${path}`;
-        if (globalSeen.has(key)) continue;
-        globalSeen.add(key);
-
-        // Try to detect method from surrounding context (within 300 chars)
-        const surroundingStart = Math.max(0, match.index - 300);
-        const surroundingEnd = Math.min(content.length, match.index + 300);
-        const surrounding = content.substring(surroundingStart, surroundingEnd);
+        // Detect method from the same line or immediately adjacent lines (within 100 chars)
+        const lineStart = content.lastIndexOf("\n", match.index) + 1;
+        const lineEnd = content.indexOf("\n", match.index + match[0].length);
+        const lineContext = content.substring(
+          Math.max(0, lineStart - 50),
+          Math.min(content.length, (lineEnd === -1 ? content.length : lineEnd) + 50)
+        );
 
         let method = "ALL";
-        const methodMatch = surrounding.match(/method\s*===?\s*['"`](GET|POST|PUT|PATCH|DELETE)['"`]/i);
+        const methodMatch = lineContext.match(/method\s*===?\s*['"`](GET|POST|PUT|PATCH|DELETE)['"`]/i);
         if (methodMatch) {
           method = methodMatch[1].toUpperCase();
         }
