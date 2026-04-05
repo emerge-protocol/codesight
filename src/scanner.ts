@@ -101,7 +101,7 @@ export async function detectProject(root: string): Promise<ProjectInfo> {
     pkg = JSON.parse(await readFile(pkgPath, "utf-8"));
   } catch {}
 
-  const name = pkg.name || basename(root);
+  const name = pkg.name || await resolveRepoName(root);
   const deps = { ...pkg.dependencies, ...pkg.devDependencies };
 
   // Detect monorepo
@@ -424,6 +424,35 @@ async function getGoDeps(root: string): Promise<string[]> {
     } catch {}
   } catch {}
   return deps;
+}
+
+/**
+ * Resolve the repo name, handling git worktrees.
+ * In a worktree, basename(root) is a random name — resolve the actual repo instead.
+ */
+async function resolveRepoName(root: string): Promise<string> {
+  try {
+    // Check if .git is a file (worktree) vs directory (normal repo)
+    const gitPath = join(root, ".git");
+    const gitStat = await stat(gitPath);
+
+    if (gitStat.isFile()) {
+      // Worktree: .git is a file containing "gitdir: /path/to/main/.git/worktrees/name"
+      const gitContent = await readFile(gitPath, "utf-8");
+      const gitdirMatch = gitContent.match(/gitdir:\s*(.+)/);
+      if (gitdirMatch) {
+        // Resolve back to main repo: /repo/.git/worktrees/name -> /repo
+        const worktreeGitDir = gitdirMatch[1].trim();
+        // Go up from .git/worktrees/name to the repo root
+        const mainGitDir = join(worktreeGitDir, "..", "..");
+        const mainRepoRoot = join(mainGitDir, "..");
+        return basename(mainRepoRoot);
+      }
+    }
+  } catch {}
+
+  // Fallback: use directory name
+  return basename(root);
 }
 
 async function fileExists(path: string): Promise<boolean> {

@@ -285,7 +285,9 @@ function formatCombined(
   lines.push(
     `> ${result.routes.length} routes | ${result.schemas.length} models | ${result.components.length} components | ${result.libs.length} lib files | ${result.config.envVars.length} env vars | ${result.middleware.length} middleware | ${result.graph.edges.length} import links`
   );
-  lines.push(`> **Token savings:** this file is ~${ts.outputTokens.toLocaleString()} tokens. Without it, AI exploration would cost ~${ts.estimatedExplorationTokens.toLocaleString()} tokens. **Saves ~${ts.saved.toLocaleString()} tokens per conversation.**`);
+  // Round to nearest 100 to keep output deterministic across runs (avoids git conflicts in worktrees)
+  const roundTo100 = (n: number) => Math.round(n / 100) * 100;
+  lines.push(`> **Token savings:** this file is ~${roundTo100(ts.outputTokens).toLocaleString()} tokens. Without it, AI exploration would cost ~${roundTo100(ts.estimatedExplorationTokens).toLocaleString()} tokens. **Saves ~${roundTo100(ts.saved).toLocaleString()} tokens per conversation.**`);
   lines.push("");
   lines.push("---");
   lines.push("");
