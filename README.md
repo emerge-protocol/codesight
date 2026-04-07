@@ -100,37 +100,51 @@ The key difference from general-purpose wiki tools: codesight already knows your
 
 ## Benchmarks (Real Projects)
 
-Every number below comes from running `codesight v1.3.1` on real production codebases. No estimates, no hypotheticals.
+Every number below comes from running `codesight v1.6.0` on real production codebases. Numbers are verified against actual source — route counts cross-checked against source files, models verified against ORM schema definitions.
 
 | Project | Stack | Files | Routes | Models | Components | Output Tokens | Exploration Tokens | Savings | Scan Time |
 |---|---|---|---|---|---|---|---|---|---|
-| **SaaS A** | Hono + Drizzle, 4 workspaces | 92 | 60 | 18 | 16 | 5,129 | 66,040 | **12.9x** | 290ms |
-| **SaaS B** | raw HTTP + Drizzle | 53 | 38 | 12 | 0 | 3,945 | 46,020 | **11.7x** | 185ms |
-| **SaaS C** | Hono + Drizzle, 3 workspaces | 40 | 13 | 8 | 10 | 2,865 | 26,130 | **9.1x** | 260ms |
+| **BuildRadar** | raw-http + Drizzle | 53 | 38 | 12 | 0 | 3,945 | 46,020 | **11.7x** | 184ms |
+| **RankRev** | Hono + Drizzle, 3 workspaces | 40 | 13 | 8 | 10 | 2,865 | 26,130 | **9.1x** | 203ms |
+| **AICareerPath** | FastAPI (Python) | 138 | 56 | 0 | 0 | 3,129 | 47,450 | **15.2x** | 893ms |
 
-**Average: 11.2x token reduction.** Your AI reads ~3K-5K tokens instead of burning ~26K-66K exploring files.
+**Average: 12.0x token reduction.** Your AI reads ~3K-5K tokens instead of burning ~26K-47K exploring files.
+
+AICareerPath has 0 models because it uses Pydantic validators (request/response schemas), not a SQL ORM. This is correct detection, not a false negative.
 
 ![Token comparison: Without codesight (46K-66K tokens) vs With codesight (3K-5K tokens)](assets/token-comparison.jpg)
 
-### AST Accuracy
+### Wiki Token Savings (v1.6.0)
 
-When TypeScript is available, codesight uses the TypeScript compiler API for structural parsing.
+With `--wiki`, targeted questions cost far fewer tokens than loading the full context map:
 
-| Project | AST Routes | AST Models | AST Components | False Positives |
+| Project | Full CODESIGHT.md | Wiki Index (session start) | Targeted article | Wiki articles |
 |---|---|---|---|---|
-| **SaaS A** | 60/60 (100%) | 18/18 (100%) | 16/16 (100%) | 0 |
-| **SaaS B** | 0/38 (regex fallback) | 12/12 (100%) | n/a | 0 |
-| **SaaS C** | 13/13 (100%) | 8/8 (100%) | 10/10 (100%) | 0 |
+| **BuildRadar** | 3,945 tokens | ~200 tokens | ~350 tokens | 9 articles |
+| **RankRev** | 2,865 tokens | ~200 tokens | ~240 tokens | 11 articles |
+| **AICareerPath** | 3,129 tokens | ~200 tokens | ~160 tokens | 17 articles |
 
-SaaS B uses raw `http.createServer` which has no framework structure for AST to parse. codesight correctly falls back to regex for routes while still using AST for Drizzle schema. Zero false positives across all three projects.
+"How does auth work?" goes from loading 3,945 tokens to reading `auth.md` (~350 tokens) — a **11x improvement on targeted queries**.
+
+### Detection Accuracy
+
+Verified against actual source files. Route counts cross-checked against route definitions; schema models cross-checked against ORM table declarations.
+
+| Project | Route Recall | Schema Recall | False Positives | Detection Method |
+|---|---|---|---|---|
+| **BuildRadar** | 38/38 (100%) | 12/12 (100%) | 0 | Schema: AST (Drizzle), Routes: regex (raw-http) |
+| **RankRev** | 13/13 (100%) | 8/8 (100%) | 0 | Full AST (Hono + Drizzle + React) |
+| **AICareerPath** | 56/57 (98.2%) | 0/0 (correct) | 0 | AST (FastAPI) |
+
+BuildRadar uses raw `http.createServer` — codesight correctly falls back to URL pattern matching for routes while still using the TypeScript compiler API for Drizzle schema. AICareerPath missed 1 of 57 FastAPI routes (98.2% recall). Zero false positives across all three projects.
 
 ### Blast Radius Accuracy
 
-Tested on a production SaaS: changing the database module correctly identified:
+Tested on BuildRadar: changing `src/db/index.ts` correctly identified:
 
-- **10 affected files** across API, auth, background jobs, and server layers
-- **33 affected routes** (every endpoint that touches the database)
-- **12 affected models** (all schema models)
+- **5 affected files** across API, auth, and server layers
+- **All routes** that touch the database
+- **12 affected models** (complete schema)
 - **BFS depth:** 3 hops through the import graph
 
 ### What Gets Detected

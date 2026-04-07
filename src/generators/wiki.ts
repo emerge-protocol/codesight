@@ -17,37 +17,87 @@ interface Domain {
   routes: RouteInfo[];
 }
 
+/**
+ * Extract domain name from the source file path.
+ * e.g. src/routes/payments.ts → "payments"
+ *      apps/api/src/routes/money-pages.ts → "money-pages"
+ * Returns null for generic filenames (index, server, app, etc.)
+ */
+function domainFromFile(file: string): string | null {
+  if (!file) return null;
+  const parts = file.replace(/\\/g, "/").split("/");
+
+  // Look for a routes/controllers/handlers directory and use the next segment
+  let containerIdx = -1;
+  for (let i = parts.length - 1; i >= 0; i--) {
+    if (["routes", "routers", "handlers", "controllers", "endpoints"].includes(parts[i])) {
+      containerIdx = i;
+      break;
+    }
+  }
+  if (containerIdx >= 0 && containerIdx + 1 < parts.length) {
+    const name = parts[containerIdx + 1].replace(/\.(ts|js|mjs|py|go|rb|java|kt)$/, "");
+    const generic = new Set(["index", "server", "app", "main", "router", "routes", "api", "handler", "handlers", "base"]);
+    if (!generic.has(name) && name.length > 1) return name;
+  }
+
+  // Fall back to the file's own name
+  const basename = parts[parts.length - 1].replace(/\.(ts|js|mjs|py|go|rb|java|kt)$/, "");
+  const generic = new Set([
+    "index", "server", "app", "main", "router", "routes", "api",
+    "handler", "handlers", "rest", "cli", "server", "dashboard",
+  ]);
+  if (!generic.has(basename) && basename.length > 1 && !basename.startsWith("_")) {
+    return basename;
+  }
+  return null;
+}
+
 function detectDomains(routes: RouteInfo[]): Domain[] {
   const buckets = new Map<string, RouteInfo[]>();
 
   for (const route of routes) {
     const path = route.path.toLowerCase();
-    const tags = route.tags.map((t) => t.toLowerCase());
 
     let domain: string;
 
+    // ── Infra: health/monitoring/low-level transport endpoints ──────────────
     if (
-      tags.includes("auth") ||
-      /\/(auth|login|logout|signup|register|session|oauth|token|password|verify)/.test(path)
+      path === "/" ||
+      /^\/(health|healthz|metrics|status|ping|ready|readyz|live|livez|mcp|sse|messages)(\/|$)/.test(path)
+    ) {
+      domain = "infra";
+    }
+    // ── Auth: path EXPLICITLY about authentication ───────────────────────────
+    // NOTE: auth TAG means "protected by auth middleware" — not a domain marker
+    else if (
+      /\/(auth|login|logout|signup|sign-in|sign-up|sign-out|register|oauth|sso|saml|token|refresh|password|forgot|reset|verify|confirm)(\/|$)/.test(path) ||
+      /\/(google|github|discord|twitter|reddit|microsoft|apple)(\/callback)?(\/|$)/.test(path)
     ) {
       domain = "auth";
-    } else if (
-      tags.includes("payment") ||
-      tags.includes("billing") ||
-      tags.includes("subscription") ||
-      /\/(payment|billing|stripe|polar|lemon|checkout|subscription|invoice|webhook)/.test(path)
+    }
+    // ── Payments: billing / subscription / checkout ──────────────────────────
+    else if (
+      /\/(payment|billing|stripe|polar|lemon|paddle|checkout|subscription|subscribe|invoice|webhook|webhooks|pricing)(\/|$)/.test(path)
     ) {
       domain = "payments";
-    } else if (/\/(admin|dashboard\/admin)/.test(path)) {
+    }
+    // ── Admin ────────────────────────────────────────────────────────────────
+    else if (/\/admin(\/|$)/.test(path)) {
       domain = "admin";
-    } else if (/\/(health|metrics|status|ping|ready|live)/.test(path)) {
-      domain = "infra";
-    } else {
-      // Group by the first meaningful path segment after any api prefix
-      const segments = route.path
-        .split("/")
-        .filter((p) => p && !p.startsWith(":") && p !== "api" && p !== "v1" && p !== "v2");
-      domain = segments[0] || "api";
+    }
+    // ── File-based grouping (most reliable for resource routes) ──────────────
+    else {
+      const fileDomain = domainFromFile(route.file);
+      if (fileDomain) {
+        domain = fileDomain;
+      } else {
+        // Path segment grouping: first non-param, non-version segment
+        const segments = route.path
+          .split("/")
+          .filter((p) => p && !p.startsWith(":") && !p.startsWith("{") && !["api", "v1", "v2", "v3"].includes(p));
+        domain = segments[0]?.replace(/_/g, "-") || "api";
+      }
     }
 
     if (!buckets.has(domain)) buckets.set(domain, []);
@@ -56,7 +106,7 @@ function detectDomains(routes: RouteInfo[]): Domain[] {
 
   // Sort: auth first, payments second, infra last, rest alphabetical
   const order = ["auth", "payments"];
-  const last = ["infra"];
+  const last = ["infra", "api"];
   const middle = [...buckets.keys()].filter((k) => !order.includes(k) && !last.includes(k)).sort();
   const sorted = [...order, ...middle, ...last].filter((k) => buckets.has(k));
 
@@ -198,10 +248,16 @@ function domainArticle(domain: Domain, result: ScanResult): string {
     lines.push("");
   }
 
-  // Related schema models — heuristic match by domain keyword
-  const kw = domain.name.slice(0, 5).toLowerCase();
+  // Related schema models — match by domain name keywords (full word, not prefix)
+  const domainKeywords = domain.name
+    .split(/[-_]/)
+    .filter((k) => k.length >= 4);
   const relatedModels = schemas
-    .filter((s) => !s.name.startsWith("enum:") && s.name.toLowerCase().includes(kw))
+    .filter(
+      (s) =>
+        !s.name.startsWith("enum:") &&
+        domainKeywords.some((kw) => s.name.toLowerCase().includes(kw))
+    )
     .slice(0, 6);
   if (relatedModels.length > 0) {
     lines.push("## Related Models", "");
