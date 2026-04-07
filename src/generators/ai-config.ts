@@ -205,14 +205,19 @@ export async function generateProfileConfig(
   switch (profile) {
     case "claude-code": {
       summaryLines.push(`## Instructions for Claude Code\n`);
-      summaryLines.push(`**Wiki = navigation aid. Source files = ground truth.**`);
-      summaryLines.push(`Wiki articles tell you WHERE things live and WHAT exists — not HOW they work.`);
-      summaryLines.push(`Always read the actual source files listed in a wiki article before implementing or modifying anything.\n`);
-      summaryLines.push(`Read these files in order at session start:`);
-      summaryLines.push(`1. \`.codesight/wiki/index.md\` — wiki index (~200 tokens), orientation only`);
+      summaryLines.push(`### Two-Step Rule (mandatory)`);
+      summaryLines.push(`**Step 1 — Orient:** Use wiki articles to find WHERE things live.`);
+      summaryLines.push(`**Step 2 — Verify:** Read the actual source files listed in the wiki article BEFORE writing any code.\n`);
+      summaryLines.push(`Wiki articles are structural summaries extracted by AST. They show routes, models, and file locations.`);
+      summaryLines.push(`They do NOT show full function logic, middleware internals, or dynamic runtime behavior.`);
+      summaryLines.push(`**Never write or modify code based solely on wiki content — always read source files first.**\n`);
+      summaryLines.push(`Read in order at session start:`);
+      summaryLines.push(`1. \`.codesight/wiki/index.md\` — orientation map (~200 tokens)`);
       summaryLines.push(`2. \`.codesight/wiki/overview.md\` — architecture overview (~500 tokens)`);
-      summaryLines.push(`3. For domain questions, read the wiki article → then read the source files it lists`);
+      summaryLines.push(`3. Domain article (e.g. \`.codesight/wiki/auth.md\`) → check "Source Files" section → read those files`);
       summaryLines.push(`4. \`.codesight/CODESIGHT.md\` — full context map for deep exploration\n`);
+      summaryLines.push(`Routes marked \`[inferred]\` in wiki articles were detected via regex — verify against source before trusting.`);
+      summaryLines.push(`If any source file shows ⚠ in the wiki, re-run \`npx codesight --wiki\` before proceeding.\n`);
       summaryLines.push(`Or use the codesight MCP server for on-demand queries:`);
       summaryLines.push(`   - \`codesight_get_wiki_article\` — read a specific wiki article by name`);
       summaryLines.push(`   - \`codesight_get_wiki_index\` — get the wiki index`);

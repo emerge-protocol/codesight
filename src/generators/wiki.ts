@@ -1,6 +1,7 @@
-import { mkdir, writeFile, appendFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { ScanResult, RouteInfo, SchemaModel } from "../types.js";
+import type { ScanResult, RouteInfo, SchemaModel, DetectionMethod } from "../types.js";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -8,6 +9,11 @@ function today(): string {
 
 function nowTs(): string {
   return new Date().toISOString().slice(0, 19).replace("T", " ");
+}
+
+/** Routes/models detected via AST are silent. Regex-inferred ones get a badge so AI knows accuracy is lower. */
+function confidenceBadge(c?: DetectionMethod): string {
+  return c === "regex" ? " `[inferred]`" : "";
 }
 
 // ─── Domain detection ─────────────────────────────────────────────────────────
@@ -200,7 +206,7 @@ function overviewArticle(result: ScanResult): string {
   return lines.join("\n");
 }
 
-function domainArticle(domain: Domain, result: ScanResult): string {
+function domainArticle(domain: Domain, result: ScanResult, missingFiles: Set<string> = new Set()): string {
   const { schemas, middleware, graph } = result;
   const title = domain.name.charAt(0).toUpperCase() + domain.name.slice(1);
   const lines: string[] = [];
@@ -232,8 +238,17 @@ function domainArticle(domain: Domain, result: ScanResult): string {
     if (route.requestType) contract.push(`in: ${route.requestType}`);
     if (route.responseType) contract.push(`out: ${route.responseType}`);
     const contractStr = contract.length > 0 ? ` → ${contract.join(", ")}` : "";
-    lines.push(`- \`${route.method}\` \`${route.path}\`${params}${contractStr}${tags}`);
-    lines.push(`  \`${route.file}\``);
+    const mwChain =
+      route.middleware && route.middleware.length > 0
+        ? ` → middleware: ${route.middleware.join(" → ")}`
+        : "";
+    const badge = confidenceBadge(route.confidence);
+    const fileWarning =
+      route.file && missingFiles.has(route.file)
+        ? " ⚠ _file not found — wiki stale, re-run `npx codesight --wiki`_"
+        : "";
+    lines.push(`- \`${route.method}\` \`${route.path}\`${params}${contractStr}${tags}${mwChain}${badge}`);
+    lines.push(`  \`${route.file || "unknown"}\`${fileWarning}`);
   }
   lines.push("");
 
@@ -250,16 +265,17 @@ function domainArticle(domain: Domain, result: ScanResult): string {
     lines.push("");
   }
 
-  // Related schema models — match by domain name keywords (full word, not prefix)
+  // Related schema models — word-boundary match only (prevents "auth" matching "oauth_provider")
   const domainKeywords = domain.name
     .split(/[-_]/)
     .filter((k) => k.length >= 4);
   const relatedModels = schemas
-    .filter(
-      (s) =>
-        !s.name.startsWith("enum:") &&
-        domainKeywords.some((kw) => s.name.toLowerCase().includes(kw))
-    )
+    .filter((s) => {
+      if (s.name.startsWith("enum:")) return false;
+      // Split model name into words and require exact word match
+      const modelWords = s.name.toLowerCase().split(/[_\-\s]/);
+      return domainKeywords.some((kw) => modelWords.includes(kw));
+    })
     .slice(0, 6);
   if (relatedModels.length > 0) {
     lines.push("## Related Models", "");
@@ -276,6 +292,21 @@ function domainArticle(domain: Domain, result: ScanResult): string {
     lines.push("## High-Impact Files", "");
     for (const hf of hotInDomain) {
       lines.push(`- \`${hf.file}\` — imported by ${hf.importedBy} files`);
+    }
+    lines.push("");
+  }
+
+  // Source files — explicit read list so AI cannot skip to implementation without opening source
+  const sourceFiles = [...new Set(domain.routes.map((r) => r.file).filter(Boolean))];
+  if (sourceFiles.length > 0) {
+    lines.push("## Source Files", "");
+    lines.push("Read these before implementing or modifying this subsystem:");
+    for (const f of sourceFiles) {
+      const stale =
+        missingFiles.has(f)
+          ? " ⚠ _not found — re-run `npx codesight --wiki`_"
+          : "";
+      lines.push(`- \`${f}\`${stale}`);
     }
     lines.push("");
   }
@@ -318,7 +349,7 @@ function databaseArticle(result: ScanResult): string {
         continue;
       }
 
-      lines.push(`### ${model.name}`, "");
+      lines.push(`### ${model.name}${confidenceBadge(model.confidence)}`, "");
 
       const pkField = model.fields.find((f) => f.flags.includes("pk"));
       const fkFields = model.fields.filter((f) => f.flags.includes("fk"));
@@ -338,16 +369,24 @@ function databaseArticle(result: ScanResult): string {
     }
   }
 
-  // DB-related hot files
-  const dbHot = graph.hotFiles.filter((hf) =>
+  // Schema source files — derived from import graph
+  const dbSourceFiles = graph.hotFiles.filter((hf) =>
     /\/(db|schema|model|drizzle|prisma|migrate)/.test(hf.file.toLowerCase())
   );
-  if (dbHot.length > 0) {
-    lines.push("## High-Impact DB Files", "");
-    lines.push("Changes here affect the most routes and services:", "");
-    for (const hf of dbHot) {
+  if (dbSourceFiles.length > 0) {
+    lines.push("## Schema Source Files", "");
+    lines.push("Read and edit these files when adding columns, creating migrations, or changing relations:", "");
+    for (const hf of dbSourceFiles) {
       lines.push(`- \`${hf.file}\` — imported by **${hf.importedBy}** files`);
     }
+    lines.push("");
+  } else {
+    lines.push("## Schema Source Files", "");
+    lines.push("Search for ORM schema declarations:");
+    lines.push("- Drizzle: `pgTable` / `mysqlTable` / `sqliteTable`");
+    lines.push("- Prisma: `prisma/schema.prisma`");
+    lines.push("- TypeORM: `@Entity()` decorator");
+    lines.push("- SQLAlchemy: class inheriting `Base`");
     lines.push("");
   }
 
@@ -442,20 +481,42 @@ function indexFile(result: ScanResult, articles: string[]): string {
   lines.push("- **Full source context:** read `.codesight/CODESIGHT.md`");
   lines.push("");
 
-  lines.push("---", `_Last compiled: ${today()} · [codesight](https://github.com/Houseofmvps/codesight)_`);
+  lines.push("## What the Wiki Does Not Cover", "");
+  lines.push("These exist in your codebase but are **not** reflected in wiki articles:");
+  lines.push("- Routes registered dynamically at runtime (loops, plugin factories, `app.use(dynamicRouter)`)");
+  lines.push("- Internal routes from npm packages (e.g. Better Auth's built-in `/api/auth/*` endpoints)");
+  lines.push("- WebSocket and SSE handlers");
+  lines.push("- Raw SQL tables not declared through an ORM");
+  lines.push("- Computed or virtual fields absent from schema declarations");
+  lines.push("- TypeScript types that are not actual database columns");
+  lines.push("- Routes marked `[inferred]` were detected via regex and may have lower precision");
+  lines.push("- gRPC, tRPC, and GraphQL resolvers may be partially captured");
+  lines.push("");
+  lines.push("When in doubt, search the source. The wiki is a starting point, not a complete inventory.", "");
+
+  lines.push("---", `_Last compiled: ${today()} · ${articles.length + 1} articles · [codesight](https://github.com/Houseofmvps/codesight)_`);
   return lines.join("\n");
 }
 
 async function appendLog(logPath: string, entry: string): Promise<void> {
-  const line = `\n## [${nowTs()}] ${entry}\n`;
+  const newEntry = `## [${nowTs()}] ${entry}`;
+  let existing = "";
   try {
-    await appendFile(logPath, line);
+    existing = await readFile(logPath, "utf-8");
   } catch {
-    await writeFile(
-      logPath,
-      `# Wiki Log\n\nAppend-only record of wiki operations.\n\`grep "^## \\[" log.md | tail -5\` shows last 5 entries.\n${line}`
-    );
+    // first run — file doesn't exist yet
   }
+
+  // Split into entries, keep last 19, append new one (total cap: 20)
+  const entries = existing
+    .split(/\n(?=## \[)/)
+    .map((e) => e.trim())
+    .filter((e) => e.startsWith("## ["));
+  const recent = entries.slice(-19);
+  recent.push(newEntry);
+
+  const header = "# Wiki Log\n\nHistory of `npx codesight --wiki` runs. Capped at 20 entries.\n\n";
+  await writeFile(logPath, header + recent.join("\n\n") + "\n");
 }
 
 // ─── Main export ─────────────────────────────────────────────────────────────
@@ -472,6 +533,17 @@ export async function generateWiki(
 ): Promise<WikiResult> {
   const wikiDir = join(outputDir, "wiki");
   await mkdir(wikiDir, { recursive: true });
+
+  // Pre-check: find route source files that no longer exist on disk
+  // A missing file means the wiki is referencing deleted/renamed code — flag it
+  const projectRoot = result.project.root;
+  const missingFiles = new Set<string>();
+  for (const route of result.routes) {
+    if (route.file) {
+      const abs = route.file.startsWith("/") ? route.file : join(projectRoot, route.file);
+      if (!existsSync(abs)) missingFiles.add(route.file);
+    }
+  }
 
   const articles: string[] = [];
   let totalChars = 0;
@@ -493,7 +565,7 @@ export async function generateWiki(
   // domain articles from routes
   const domains = detectDomains(result.routes);
   for (const domain of domains) {
-    const content = domainArticle(domain, result);
+    const content = domainArticle(domain, result, missingFiles);
     const filename = `${domain.name}.md`;
     await writeFile(join(wikiDir, filename), content);
     articles.push(filename);
