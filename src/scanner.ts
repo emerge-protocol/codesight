@@ -181,7 +181,7 @@ export async function detectProject(root: string): Promise<ProjectInfo> {
 
   // Detect monorepo — also treat roots with subdirs containing non-JS manifests as monorepos
   const hasPnpmWorkspace = await fileExists(join(root, "pnpm-workspace.yaml"));
-  const isMonorepo = !!(pkg.workspaces || hasPnpmWorkspace);
+  let isMonorepo = !!(pkg.workspaces || hasPnpmWorkspace);
   const workspaces: WorkspaceInfo[] = [];
 
   if (isMonorepo) {
@@ -209,47 +209,73 @@ export async function detectProject(root: string): Promise<ProjectInfo> {
       }
     }
   } else {
-    // Even without a declared monorepo manifest, scan top-level subdirs for
-    // non-JS workspaces (e.g. SwiftUI + Laravel side-by-side in one repo)
+    // No manifest-declared monorepo — scan top-level subdirs for any stack
+    // (JS or non-JS) to catch mixed repos like Swift+React, Python+JS, etc.
     try {
       const topDirs = await readdir(root, { withFileTypes: true });
       for (const d of topDirs) {
         if (!d.isDirectory() || d.name.startsWith(".") || IGNORE_DIRS.has(d.name)) continue;
         const wsPath = join(root, d.name);
-        const wsInfo = await detectNonJSWorkspace(root, wsPath, d.name);
+        // detectWorkspace handles both JS (package.json) and non-JS manifests
+        const wsInfo = await detectWorkspace(root, wsPath, d.name);
         if (wsInfo) workspaces.push(wsInfo);
       }
     } catch {}
+    // Treat as implicit monorepo when multiple distinct stacks are found
+    if (workspaces.length >= 2) isMonorepo = true;
   }
 
-  // For monorepos, aggregate all workspace deps for top-level detection
+  // Aggregate all workspace deps (always — not just for declared monorepos)
   let allDeps = { ...deps };
-  if (isMonorepo) {
-    for (const ws of workspaces) {
-      const wsPkg = await readJsonSafe(join(root, ws.path, "package.json"));
-      Object.assign(allDeps, wsPkg.dependencies, wsPkg.devDependencies);
-    }
+  for (const ws of workspaces) {
+    const wsPkg = await readJsonSafe(join(root, ws.path, "package.json"));
+    Object.assign(allDeps, wsPkg.dependencies, wsPkg.devDependencies);
   }
 
-  // Detect language
-  const language = await detectLanguage(root, allDeps);
+  // Detect language from root-level manifests + aggregated deps
+  let language = await detectLanguage(root, allDeps);
 
-  // For monorepos, aggregate frameworks and orms from workspaces
+  // Aggregate frameworks and orms from workspaces (always — not just for declared monorepos)
   let frameworks = await detectFrameworks(root, pkg);
   let orms = await detectORMs(root, pkg);
-  if (isMonorepo) {
-    for (const ws of workspaces) {
-      for (const fw of ws.frameworks) {
-        if (!frameworks.includes(fw)) frameworks.push(fw);
-      }
-      for (const orm of ws.orms) {
-        if (!orms.includes(orm)) orms.push(orm);
-      }
+  for (const ws of workspaces) {
+    for (const fw of ws.frameworks) {
+      if (!frameworks.includes(fw)) frameworks.push(fw);
     }
-    // Remove raw-http fallback if real frameworks were found from workspaces
-    if (frameworks.length > 1 && frameworks.includes("raw-http")) {
-      frameworks = frameworks.filter((fw) => fw !== "raw-http");
+    for (const orm of ws.orms) {
+      if (!orms.includes(orm)) orms.push(orm);
     }
+  }
+  // Remove raw-http fallback if real frameworks were found from workspaces
+  if (frameworks.length > 1 && frameworks.includes("raw-http")) {
+    frameworks = frameworks.filter((fw) => fw !== "raw-http");
+  }
+
+  // Re-derive language for multi-stack repos where manifests live in subdirs,
+  // not at root (e.g. backend/Package.swift → swift not detected at root level)
+  if (workspaces.length >= 2) {
+    const FW_LANG: Partial<Record<string, string>> = {
+      vapor: "swift", swiftui: "swift",
+      flutter: "dart",
+      django: "python", flask: "python", fastapi: "python",
+      rails: "ruby",
+      phoenix: "elixir",
+      spring: "java",
+      ktor: "kotlin",
+      laravel: "php", php: "php",
+      actix: "rust", axum: "rust",
+      aspnet: "csharp",
+    };
+    const wsLangs = new Set<string>();
+    if (language === "typescript" || language === "javascript" || allDeps["react"] || allDeps["typescript"]) {
+      wsLangs.add(allDeps["typescript"] || deps["typescript"] ? "typescript" : "javascript");
+    }
+    for (const fw of frameworks) {
+      const l = FW_LANG[fw];
+      if (l) wsLangs.add(l);
+    }
+    if (wsLangs.size > 1) language = "mixed";
+    else if (wsLangs.size === 1) language = wsLangs.values().next().value as typeof language;
   }
 
   return {
