@@ -357,6 +357,7 @@ async function detectFrameworks(
         ? await readFile(join(root, "pom.xml"), "utf-8")
         : await readFile(join(root, hasBuildGradle ? "build.gradle.kts" : "build.gradle"), "utf-8");
       if (buildFile.includes("spring")) frameworks.push("spring");
+      if (buildFile.includes("ktor")) frameworks.push("ktor");
     } catch {}
   }
 
@@ -503,6 +504,18 @@ async function detectORMs(
     try {
       const composer = await readFile(composerPath, "utf-8");
       if (composer.includes("laravel/framework")) orms.push("eloquent");
+    } catch {}
+  }
+
+  // Exposed (Kotlin)
+  const hasBuildGradleKts = await fileExists(join(root, "build.gradle.kts"));
+  const hasBuildGradleKotlin = hasBuildGradleKts || await fileExists(join(root, "build.gradle"));
+  if (hasBuildGradleKotlin) {
+    try {
+      const gradleFile = hasBuildGradleKts
+        ? await readFile(join(root, "build.gradle.kts"), "utf-8")
+        : await readFile(join(root, "build.gradle"), "utf-8");
+      if (gradleFile.includes("exposed")) orms.push("exposed");
     } catch {}
   }
 

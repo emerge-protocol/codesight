@@ -106,6 +106,9 @@ export async function detectRoutes(
       case "spring":
         routes.push(...(await detectSpringRoutes(files, project)));
         break;
+      case "ktor":
+        routes.push(...(await detectKtorRoutes(files, project)));
+        break;
       case "actix":
       case "axum":
         routes.push(...(await detectRustRoutes(files, project, fw)));
@@ -1091,6 +1094,82 @@ async function detectSpringRoutes(
   }
 
   return routes;
+}
+
+// --- Ktor (Kotlin) ---
+async function detectKtorRoutes(
+  files: string[],
+  project: ProjectInfo
+): Promise<RouteInfo[]> {
+  const ktFiles = files.filter((f) => f.endsWith(".kt"));
+  const routes: RouteInfo[] = [];
+
+  for (const file of ktFiles) {
+    const content = await readFileSafe(file);
+    if (
+      !content.includes("routing") &&
+      !content.includes("route(") &&
+      !content.includes("get(") &&
+      !content.includes("post(")
+    ) continue;
+
+    const rel = relative(project.root, file);
+
+    // Track route() prefix nesting: route("/prefix") { get("/sub") { ... } }
+    // Strategy: find all route() prefixes, then find method calls inside each block
+    const prefixes = new Map<number, string>(); // offset → prefix
+    const routeBlockPat = /\.?route\s*\(\s*"([^"]+)"\s*\)\s*\{/g;
+    let rm: RegExpExecArray | null;
+    while ((rm = routeBlockPat.exec(content)) !== null) {
+      prefixes.set(rm.index + rm[0].length, rm[1]);
+    }
+
+    // Flat method routes: get("/path") { ... } or post("/path") { ... }
+    const methodPat = /\b(get|post|put|patch|delete|head|options)\s*\(\s*"([^"]+)"\s*\)/gi;
+    let mm: RegExpExecArray | null;
+    while ((mm = methodPat.exec(content)) !== null) {
+      const method = mm[1].toUpperCase();
+      const path = mm[2];
+      const offset = mm.index;
+
+      // Find the closest enclosing route() prefix (largest prefix offset < current offset)
+      let prefix = "";
+      for (const [pOffset, pPath] of prefixes) {
+        if (pOffset <= offset) prefix = pPath;
+      }
+
+      routes.push({
+        method,
+        path: prefix ? normalizePath(prefix + "/" + path) : path,
+        file: rel,
+        tags: detectTags(content),
+        framework: "ktor" as const,
+        params: extractKtorParams(path),
+        confidence: "regex",
+      });
+    }
+  }
+
+  // Deduplicate
+  const seen = new Set<string>();
+  return routes.filter((r) => {
+    const key = `${r.method}:${r.path}:${r.file}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function normalizePath(path: string): string {
+  return ("/" + path).replace(/\/+/g, "/").replace(/\/$/, "") || "/";
+}
+
+function extractKtorParams(path: string): string[] {
+  const params: string[] = [];
+  const regex = /\{(\w+)\}/g;
+  let m;
+  while ((m = regex.exec(path)) !== null) params.push(m[1]);
+  return params;
 }
 
 // --- Rust (Actix-web, Axum) ---

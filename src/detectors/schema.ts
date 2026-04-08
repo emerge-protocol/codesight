@@ -61,6 +61,9 @@ export async function detectSchemas(
       case "sequelize":
         models.push(...(await detectSequelizeSchemas(files, project)));
         break;
+      case "exposed":
+        models.push(...(await detectExposedSchemas(files, project)));
+        break;
     }
   }
 
@@ -869,6 +872,95 @@ const SQL_TYPE_MAP: Record<string, string> = {
   "float": "float", "real": "real", "double precision": "float8", "numeric": "numeric", "decimal": "decimal",
   "bytea": "bytes", "blob": "bytes",
 };
+
+// --- Exposed (Kotlin) ---
+// Detects: object Users : Table() / IntIdTable() / LongIdTable() / UUIDTable()
+// with column definitions: val name = varchar("name", 100)
+async function detectExposedSchemas(
+  files: string[],
+  _project: ProjectInfo
+): Promise<SchemaModel[]> {
+  const ktFiles = files.filter((f) => f.endsWith(".kt"));
+  const models: SchemaModel[] = [];
+
+  const EXPOSED_TABLE_BASES = ["Table", "IntIdTable", "LongIdTable", "UUIDTable", "IdTable"];
+
+  // Kotlin type map for Exposed column definitions
+  const EXPOSED_TYPE_MAP: Record<string, string> = {
+    integer: "integer", long: "bigint", short: "smallint",
+    float: "float", double: "double", decimal: "decimal",
+    varchar: "string", char: "char", text: "text",
+    bool: "boolean", date: "date", datetime: "datetime",
+    timestamp: "timestamp", binary: "bytes", blob: "bytes",
+    uuid: "uuid", json: "json", jsonb: "json",
+    reference: "integer", optReference: "integer",
+  };
+
+  for (const file of ktFiles) {
+    const content = await readFileSafe(file);
+    if (!content) continue;
+    if (!EXPOSED_TABLE_BASES.some((b) => content.includes(`: ${b}(`))) continue;
+
+    // Match: object TableName : BaseTable(...) { ... }
+    const objectPat = /object\s+(\w+)\s*:\s*(?:\w+\.)?(\w+)\s*\([^)]*\)\s*\{/g;
+    let om: RegExpExecArray | null;
+
+    while ((om = objectPat.exec(content)) !== null) {
+      const name = om[1];
+      const base = om[2];
+      if (!EXPOSED_TABLE_BASES.includes(base)) continue;
+
+      // Extract block after {
+      const blockStart = om.index + om[0].length;
+      let depth = 1;
+      let i = blockStart;
+      while (i < content.length && depth > 0) {
+        if (content[i] === "{") depth++;
+        else if (content[i] === "}") depth--;
+        i++;
+      }
+      const block = content.slice(blockStart, i - 1);
+
+      const fields: SchemaField[] = [];
+      const relations: string[] = [];
+
+      // val fieldName = typeFn("col_name", ...) — column definitions
+      const colPat = /val\s+(\w+)\s*=\s*(\w+)\s*\(/g;
+      let cm: RegExpExecArray | null;
+      while ((cm = colPat.exec(block)) !== null) {
+        const fieldName = cm[1];
+        const typeFn = cm[2];
+        if (fieldName === "primaryKey") continue; // override val primaryKey = PrimaryKey(...)
+
+        const colType = EXPOSED_TYPE_MAP[typeFn] || typeFn.toLowerCase();
+        const flags: string[] = [];
+
+        // Check modifiers on the same line
+        const lineEnd = block.indexOf("\n", cm.index);
+        const line = block.slice(cm.index, lineEnd > -1 ? lineEnd : undefined);
+        if (line.includes(".uniqueIndex()") || line.includes(".unique()")) flags.push("unique");
+        if (line.includes(".nullable()")) flags.push("nullable");
+        if (line.includes(".autoIncrement()")) flags.push("pk");
+        if (typeFn === "reference" || typeFn === "optReference") {
+          // Extract referenced table
+          const refMatch = line.match(/reference\s*\(\s*"[^"]+"\s*,\s*(\w+)/);
+          if (refMatch) {
+            relations.push(`${fieldName}: ${refMatch[1]}`);
+            flags.push("fk");
+          }
+        }
+
+        fields.push({ name: fieldName, type: colType, flags });
+      }
+
+      if (fields.length > 0) {
+        models.push({ name, fields, relations, orm: "exposed", confidence: "regex" });
+      }
+    }
+  }
+
+  return models;
+}
 
 async function detectRawSQLSchemas(
   files: string[],
