@@ -726,6 +726,18 @@ async function detectNonJSWorkspace(
     }
   } catch {}
 
+  // Python frameworks - FastAPI, Flask, Django
+  try {
+    const pyDeps = await getPythonDeps(wsPath);
+    if (pyDeps.includes("fastapi")) frameworks.push("fastapi");
+    if (pyDeps.includes("sqlalchemy") || pyDeps.includes("sqlmodel")) orms.push("sqlalchemy");
+    if (pyDeps.includes("flask")) frameworks.push("flask");
+    if (pyDeps.includes("django")) {
+      frameworks.push("django");
+      orms.push("django");
+    }
+  } catch {}
+
   if (frameworks.length === 0) return null;
 
   return {
