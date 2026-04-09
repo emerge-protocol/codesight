@@ -32,6 +32,7 @@ const IGNORE_DIRS = new Set([
   "vendor",
   ".cache",
   ".parcel-cache",
+  ".gradle",
 ]);
 
 const CODE_EXTENSIONS = new Set([
@@ -472,6 +473,26 @@ async function detectFrameworks(
     } catch {}
   }
 
+  // Android
+  const hasAndroidManifest =
+    (await fileExists(join(root, "app", "src", "main", "AndroidManifest.xml"))) ||
+    (await fileExists(join(root, "src", "main", "AndroidManifest.xml"))) ||
+    (await fileExists(join(root, "AndroidManifest.xml")));
+  if (hasAndroidManifest) {
+    frameworks.push("android");
+  } else if (hasBuildGradle) {
+    // Check for com.android plugin in gradle
+    for (const gp of ["build.gradle.kts", "build.gradle", "app/build.gradle.kts", "app/build.gradle"]) {
+      try {
+        const gc = await readFile(join(root, gp), "utf-8");
+        if (/com\.android\.(?:application|library)/.test(gc)) {
+          frameworks.push("android");
+          break;
+        }
+      } catch {}
+    }
+  }
+
   // Fallback: detect raw http.createServer if no other frameworks found
   if (frameworks.length === 0) {
     frameworks.push("raw-http");
@@ -546,6 +567,10 @@ async function detectORMs(
     } catch {}
   }
 
+  // Room (Android)
+  const androidDeps = await getAndroidDeps(root);
+  if (androidDeps.some((d) => d.includes("androidx.room"))) orms.push("room");
+
   // Entity Framework (ASP.NET) — check all csproj files
   const allCsprojForOrm = await findAllCsproj(root);
   for (const cp of allCsprojForOrm) {
@@ -569,6 +594,7 @@ function detectComponentFramework(
   if (deps["vue"]) return "vue";
   if (deps["svelte"]) return "svelte";
   if (frameworks.includes("flutter")) return "flutter";
+  if (frameworks.includes("android")) return "jetpack-compose";
   return "unknown";
 }
 
@@ -858,6 +884,27 @@ async function getGoDeps(root: string): Promise<string[]> {
       if (main.includes("net/http")) deps.push("net/http");
     } catch {}
   } catch {}
+  return deps;
+}
+
+async function getAndroidDeps(root: string): Promise<string[]> {
+  const deps: string[] = [];
+  const gradlePaths = [
+    join(root, "build.gradle.kts"),
+    join(root, "build.gradle"),
+    join(root, "app", "build.gradle.kts"),
+    join(root, "app", "build.gradle"),
+  ];
+  for (const gp of gradlePaths) {
+    try {
+      const content = await readFile(gp, "utf-8");
+      const depPat = /(?:implementation|api|kapt|ksp|annotationProcessor)\s*\(?["']([^"']+)["']\)?/g;
+      let m: RegExpExecArray | null;
+      while ((m = depPat.exec(content)) !== null) {
+        deps.push(m[1]);
+      }
+    } catch {}
+  }
   return deps;
 }
 

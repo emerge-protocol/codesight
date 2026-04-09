@@ -33,14 +33,15 @@ export type Framework =
   | "vapor"
   | "swiftui"
   | "flutter"
+  | "android"
   | "graphql"
   | "grpc"
   | "websocket"
   | "unknown";
 
-export type ORM = "drizzle" | "prisma" | "typeorm" | "sqlalchemy" | "django" | "gorm" | "mongoose" | "sequelize" | "activerecord" | "ecto" | "eloquent" | "entity-framework" | "exposed" | "unknown";
+export type ORM = "drizzle" | "prisma" | "typeorm" | "sqlalchemy" | "django" | "gorm" | "mongoose" | "sequelize" | "activerecord" | "ecto" | "eloquent" | "entity-framework" | "exposed" | "room" | "unknown";
 
-export type ComponentFramework = "react" | "vue" | "svelte" | "flutter" | "unknown";
+export type ComponentFramework = "react" | "vue" | "svelte" | "flutter" | "jetpack-compose" | "unknown";
 
 export type KnowledgeNoteType = "decision" | "meeting" | "retro" | "spec" | "backlog" | "research" | "session" | "general";
 

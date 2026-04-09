@@ -4,6 +4,7 @@ import { loadTypeScript } from "../ast/loader.js";
 import { extractReactComponentsAST } from "../ast/extract-components.js";
 import { extractFlutterWidgets } from "../ast/extract-dart.js";
 import { extractSwiftUIViews } from "../ast/extract-swift.js";
+import { extractComposeComponents } from "../ast/extract-android.js";
 import type { ComponentInfo, ProjectInfo } from "../types.js";
 
 // shadcn/ui + radix primitives to filter out
@@ -84,6 +85,8 @@ export async function detectComponents(
       return detectSvelteComponents(files, project);
     case "flutter":
       return detectFlutterComponents(files, project);
+    case "jetpack-compose":
+      return detectComposeComponentsFromFiles(files, project);
     default: {
       // SwiftUI: no componentFramework flag — detect if swiftui/vapor framework present
       if (
@@ -372,6 +375,26 @@ async function detectFlutterComponents(
     if (!content) continue;
     const rel = relative(project.root, file);
     components.push(...extractFlutterWidgets(rel, content));
+  }
+
+  return components;
+}
+
+// --- Jetpack Compose ---
+async function detectComposeComponentsFromFiles(
+  files: string[],
+  project: ProjectInfo
+): Promise<ComponentInfo[]> {
+  const ktFiles = files.filter(
+    (f) => f.endsWith(".kt") && !f.includes("Test") && !f.includes("_test")
+  );
+  const components: ComponentInfo[] = [];
+
+  for (const file of ktFiles) {
+    const content = await readFileSafe(file);
+    if (!content || !content.includes("@Composable")) continue;
+    const rel = relative(project.root, file);
+    components.push(...extractComposeComponents(rel, content));
   }
 
   return components;

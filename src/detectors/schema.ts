@@ -6,6 +6,7 @@ import { extractSQLAlchemyAST, extractDjangoModelsAST, extractSQLModelAST } from
 import { extractGORMModelsStructured } from "../ast/extract-go.js";
 import { extractEloquentModels } from "../ast/extract-php.js";
 import { extractEntityFrameworkModels } from "../ast/extract-csharp.js";
+import { extractRoomEntities } from "../ast/extract-android.js";
 import type { SchemaModel, SchemaField, ProjectInfo } from "../types.js";
 
 const AUDIT_FIELDS = new Set([
@@ -63,6 +64,9 @@ export async function detectSchemas(
         break;
       case "exposed":
         models.push(...(await detectExposedSchemas(files, project)));
+        break;
+      case "room":
+        models.push(...(await detectRoomSchemas(files, project)));
         break;
     }
   }
@@ -1032,6 +1036,25 @@ async function detectRawSQLSchemas(
         models.push({ name: tableName, fields, relations, orm: "unknown", confidence: "ast" });
       }
     }
+  }
+
+  return models;
+}
+
+// ─── Room (Android) ────────────────────────────────────────────────────────────
+
+async function detectRoomSchemas(
+  files: string[],
+  project: ProjectInfo
+): Promise<SchemaModel[]> {
+  const ktFiles = files.filter((f) => f.endsWith(".kt"));
+  const models: SchemaModel[] = [];
+
+  for (const file of ktFiles) {
+    const content = await readFileSafe(file);
+    if (!content || !content.includes("@Entity")) continue;
+    const rel = relative(project.root, file).replace(/\\/g, "/");
+    models.push(...extractRoomEntities(rel, content));
   }
 
   return models;

@@ -8,6 +8,7 @@ import { extractLaravelRoutes } from "../ast/extract-php.js";
 import { extractAspNetControllerRoutes, extractAspNetMinimalApiRoutes } from "../ast/extract-csharp.js";
 import { extractFlutterRoutes } from "../ast/extract-dart.js";
 import { extractVaporRoutes } from "../ast/extract-swift.js";
+import { extractRetrofitRoutes, extractNavigationRoutes, extractActivitiesFromManifest } from "../ast/extract-android.js";
 import type { RouteInfo, Framework, ProjectInfo, CodesightConfig } from "../types.js";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"];
@@ -130,6 +131,9 @@ export async function detectRoutes(
         break;
       case "vapor":
         routes.push(...(await detectVaporRoutes(files, project)));
+        break;
+      case "android":
+        routes.push(...(await detectAndroidRoutes(files, project)));
         break;
     }
   }
@@ -1448,6 +1452,60 @@ async function detectVaporRoutes(
     if (!content) continue;
     const rel = relative(project.root, file).replace(/\\/g, "/");
     routes.push(...extractVaporRoutes(rel, content, detectTags(content)));
+  }
+
+  return routes;
+}
+
+// ─── Android ──────────────────────────────────────────────────────────────────
+
+async function detectAndroidRoutes(
+  files: string[],
+  project: ProjectInfo
+): Promise<RouteInfo[]> {
+  const { readdir } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const routes: RouteInfo[] = [];
+
+  // 1. Retrofit routes from .kt files
+  const ktFiles = files.filter((f) => f.endsWith(".kt"));
+  for (const file of ktFiles) {
+    const content = await readFileSafe(file);
+    if (!content) continue;
+    const rel = relative(project.root, file).replace(/\\/g, "/");
+    routes.push(...extractRetrofitRoutes(rel, content, detectTags(content)));
+  }
+
+  // 2. Navigation XML routes
+  const navDirs = [
+    join(project.root, "app", "src", "main", "res", "navigation"),
+    join(project.root, "src", "main", "res", "navigation"),
+  ];
+  for (const navDir of navDirs) {
+    try {
+      const entries = await readdir(navDir);
+      for (const entry of entries) {
+        if (!entry.endsWith(".xml")) continue;
+        const content = await readFileSafe(join(navDir, entry));
+        if (!content) continue;
+        const rel = relative(project.root, join(navDir, entry)).replace(/\\/g, "/");
+        routes.push(...extractNavigationRoutes(rel, content));
+      }
+    } catch {}
+  }
+
+  // 3. Activities from AndroidManifest.xml
+  const manifestPaths = [
+    join(project.root, "app", "src", "main", "AndroidManifest.xml"),
+    join(project.root, "src", "main", "AndroidManifest.xml"),
+    join(project.root, "AndroidManifest.xml"),
+  ];
+  for (const mp of manifestPaths) {
+    const content = await readFileSafe(mp);
+    if (!content) continue;
+    const rel = relative(project.root, mp).replace(/\\/g, "/");
+    routes.push(...extractActivitiesFromManifest(rel, content));
+    break;
   }
 
   return routes;
