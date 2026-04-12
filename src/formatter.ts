@@ -69,6 +69,14 @@ export async function writeOutput(
     await writeFile(join(outputDir, "coverage.md"), content);
   }
 
+  // Plugin-contributed custom sections
+  if (result.customSections) {
+    for (const cs of result.customSections) {
+      sections.push({ name: cs.name, content: cs.content });
+      await writeFile(join(outputDir, `${cs.name}.md`), cs.content);
+    }
+  }
+
   const combined = formatCombined(result, sections);
   await writeFile(join(outputDir, "CODESIGHT.md"), combined);
 

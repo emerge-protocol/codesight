@@ -220,6 +220,8 @@ export interface PluginDetectorResult {
   components?: ComponentInfo[];
   /** Additional middleware to merge */
   middleware?: MiddlewareInfo[];
+  /** Custom markdown sections rendered into CODESIGHT.md and written as individual .md files */
+  customSections?: { name: string; content: string }[];
 }
 
 export interface EventInfo {
@@ -256,6 +258,8 @@ export interface ScanResult {
   events?: EventInfo[];
   testCoverage?: TestCoverage;
   crudGroups?: CrudGroup[];
+  /** Plugin-contributed custom sections (rendered into CODESIGHT.md alongside built-in sections) */
+  customSections?: { name: string; content: string }[];
 }
 
 export interface TokenStats {

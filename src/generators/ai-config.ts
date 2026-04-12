@@ -63,6 +63,14 @@ function generateContext(result: ScanResult): string {
     lines.push("");
   }
 
+  // Plugin-contributed sections
+  if (result.customSections) {
+    for (const cs of result.customSections) {
+      lines.push(`See .codesight/${cs.name}.md for additional ${cs.name} context.`);
+    }
+    lines.push("");
+  }
+
   // Wiki reference if it exists
   lines.push("Read .codesight/wiki/index.md for orientation (WHERE things live). Then read actual source files before implementing. Wiki articles are navigation aids, not implementation guides.");
   lines.push("Read .codesight/CODESIGHT.md for the complete AI context map including all routes, schema, components, libraries, config, middleware, and dependency graph.");
