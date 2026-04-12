@@ -6,6 +6,10 @@
   "bin": {
     "codesight": "dist/index.js"
   },
+  "exports": {
+    ".": "./dist/index.js",
+    "./plugins/terraform": "./dist/plugins/terraform/index.js"
+  },
   "type": "module",
   "scripts": {
     "build": "tsc",
