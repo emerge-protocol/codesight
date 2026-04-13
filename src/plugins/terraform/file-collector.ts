@@ -3,7 +3,6 @@ import { join, dirname, resolve, extname } from "node:path";
 import type { TerraformPluginConfig } from "./types.js";
 
 const SKIP_DIRS = new Set([".terraform", ".git", "node_modules", ".terragrunt-cache"]);
-const TF_EXTENSIONS = new Set([".tf", ".tfvars"]);
 
 export interface CollectedFiles {
   tfFiles: string[];

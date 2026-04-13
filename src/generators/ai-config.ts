@@ -66,7 +66,9 @@ function generateContext(result: ScanResult): string {
   // Plugin-contributed sections
   if (result.customSections) {
     for (const cs of result.customSections) {
-      lines.push(`See .codesight/${cs.name}.md for additional ${cs.name} context.`);
+      const safeName = cs.name.replace(/[^a-z0-9_-]/gi, "").toLowerCase();
+      if (!safeName) continue;
+      lines.push(`See .codesight/${safeName}.md for additional ${safeName} context.`);
     }
     lines.push("");
   }

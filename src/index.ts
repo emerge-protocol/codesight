@@ -152,6 +152,8 @@ async function scan(root: string, outputDirName: string, maxDepth: number, userC
   }
 
   // Step 3b: Run plugin detectors
+  // NOTE: if two plugins emit sections with the same name, the last writer wins on disk
+  // but both appear in CODESIGHT.md. Guard with unique names per plugin for now.
   const customSections: { name: string; content: string }[] = [];
   if (userConfig.plugins) {
     for (const plugin of userConfig.plugins) {

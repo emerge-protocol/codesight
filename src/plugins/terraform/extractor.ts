@@ -57,6 +57,7 @@ export async function extractEnvironments(
   const environments: Record<string, EnvironmentOverrides> = {};
   const normalised = normaliseServiceName(serviceName);
 
+  // TODO: consider Promise.all for parallel file reads in large infra repos
   for (const file of tfvarsFiles) {
     const envName = basename(file, ".tfvars");
     const content = await readFileSafe(file);

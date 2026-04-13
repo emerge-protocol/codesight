@@ -12,6 +12,9 @@ export function parseHclFile(content: string, filePath: string): HclBlock[] {
 /**
  * Parse a .tfvars file into simple key=value pairs.
  * tfvars files are flat: `key = value` per line, no blocks.
+ * NOTE: multiline values (lists, maps, heredocs) are silently truncated to the first line.
+ * This is sufficient for scalar overrides (enable flags, counts, tags) but won't capture
+ * complex tfvars structures. Extend if needed.
  */
 export function parseTfvars(content: string): Record<string, string> {
   const result: Record<string, string> = {};
@@ -131,13 +134,11 @@ export function stripComments(content: string): string {
 
 // ─── Block Extraction ───
 
-const BLOCK_HEADER = /^(resource|module|data|variable|output|locals|provider|terraform)\s+(?:"([^"]+)"\s+)?(?:"([^"]+)"\s+)?\{/gm;
-
 function parseTopLevelBlocks(content: string, filePath: string): HclBlock[] {
+  const BLOCK_HEADER = /^(resource|module|data|variable|output|locals|provider|terraform)\s+(?:"([^"]+)"\s+)?(?:"([^"]+)"\s+)?\{/gm;
   const blocks: HclBlock[] = [];
   let match: RegExpExecArray | null;
 
-  BLOCK_HEADER.lastIndex = 0;
   while ((match = BLOCK_HEADER.exec(content)) !== null) {
     const blockType = match[1];
     const startAfterBrace = match.index + match[0].length;
@@ -368,13 +369,21 @@ function parseBlockBody(body: string): ParsedBody {
           continue;
         }
       } else if (value === "[") {
-        // Multi-line list
+        // Multi-line list — string-aware bracket counting
         const listLines: string[] = [value];
         i++;
         let bracketDepth = 1;
         while (i < lines.length && bracketDepth > 0) {
           listLines.push(lines[i]);
-          for (const ch of lines[i]) {
+          let inStr = false;
+          for (let ci = 0; ci < lines[i].length; ci++) {
+            const ch = lines[i][ci];
+            if (ch === '"' && !inStr) { inStr = true; continue; }
+            if (inStr) {
+              if (ch === "\\" && ci + 1 < lines[i].length) { ci++; continue; }
+              if (ch === '"') inStr = false;
+              continue;
+            }
             if (ch === "[") bracketDepth++;
             if (ch === "]") bracketDepth--;
           }

@@ -39,6 +39,7 @@ export function createTerraformPlugin(config: TerraformPluginConfig = {}): Codes
       if (collected.tfFiles.length === 0) return {};
 
       // Parse all .tf files into HCL blocks
+      // TODO: consider Promise.all for parallel file reads in large infra repos
       const allBlocks: HclBlock[] = [];
       for (const tfFile of collected.tfFiles) {
         const content = await readFileSafe(tfFile);

@@ -71,7 +71,7 @@ export async function writeOutput(
 
   // Plugin-contributed custom sections
   if (result.customSections) {
-    const reserved = new Set(["routes", "schema", "components", "libs", "config", "middleware", "graph", "events", "coverage", "CODESIGHT"]);
+    const reserved = new Set(["routes", "schema", "components", "libs", "config", "middleware", "graph", "events", "coverage", "codesight"]);
     for (const cs of result.customSections) {
       // Sanitise name to safe basename: lowercase alphanumeric, hyphens, underscores
       const safeName = cs.name.replace(/[^a-z0-9_-]/gi, "").toLowerCase();
