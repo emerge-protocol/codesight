@@ -1,7 +1,7 @@
 import { writeFile, mkdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { scan } from "../core.js";
-import { discoverPackages } from "./discover.js";
+import { discoverPackages, type PackageInfo } from "./discover.js";
 import { extractCrossPackageDeps, writeDepsFile } from "./deps.js";
 import type { CodesightConfig } from "../types.js";
 
@@ -15,7 +15,7 @@ export async function runMonorepoScan(
   root: string,
   userConfig: CodesightConfig,
   targetPackage?: string
-): Promise<void> {
+): Promise<PackageInfo[]> {
   const monorepoConfig = userConfig.monorepo ?? {};
   const outputDirName = userConfig.outputDir ?? ".codesight";
   const maxDepth = userConfig.maxDepth ?? 10;
@@ -30,7 +30,7 @@ export async function runMonorepoScan(
     const match = packages.find((p) => p.name === targetPackage);
     if (!match) {
       console.warn(`  codesight --refresh: package "${targetPackage}" not found or filtered out.`);
-      return;
+      return [];
     }
     packages = [match];
   }
@@ -52,6 +52,8 @@ export async function runMonorepoScan(
   // Write or refresh global index
   await writeGlobalIndex(root, packages.map((p) => p.dir), outputDirName);
   console.log(`\n  Global index updated: ${GLOBAL_INDEX_FILENAME}\n`);
+
+  return packages;
 }
 
 async function writeGlobalIndex(
@@ -83,5 +85,7 @@ async function writeGlobalIndex(
     "",
   ];
 
-  await writeFile(join(root, GLOBAL_INDEX_FILENAME), lines.join("\n"), "utf-8");
+  const outDir = join(root, outputDirName);
+  await mkdir(outDir, { recursive: true });
+  await writeFile(join(outDir, GLOBAL_INDEX_FILENAME), lines.join("\n"), "utf-8");
 }

@@ -115,7 +115,7 @@ async function refreshGlobalIndex(
   packages: PackageInfo[],
   outputDirName: string
 ): Promise<void> {
-  const { writeFile, stat } = await import("node:fs/promises");
+  const { writeFile, stat, mkdir } = await import("node:fs/promises");
   const confirmed: string[] = [];
   for (const pkg of packages) {
     try {
@@ -136,5 +136,7 @@ async function refreshGlobalIndex(
     ...confirmed,
     "",
   ];
-  await writeFile(join(root, "CODESIGHT.md"), lines.join("\n"), "utf-8");
+  const outDir = join(root, outputDirName);
+  await mkdir(outDir, { recursive: true });
+  await writeFile(join(outDir, "CODESIGHT.md"), lines.join("\n"), "utf-8");
 }

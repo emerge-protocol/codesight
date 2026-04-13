@@ -214,7 +214,7 @@ describe("runMonorepoScan", () => {
     assert.ok(depsContent.includes("@test/pkg-beta"), `Expected @test/pkg-beta in deps.md, got:\n${depsContent}`);
 
     // Global CODESIGHT.md at root lists qualifying packages
-    const globalIndex = readFileSync(join(dir, "CODESIGHT.md"), "utf-8");
+    const globalIndex = readFileSync(join(dir, ".codesight", "CODESIGHT.md"), "utf-8");
     assert.ok(globalIndex.includes("packages/@test/pkg-alpha"), `Expected pkg-alpha in global index:\n${globalIndex}`);
     assert.ok(globalIndex.includes("packages/@test/pkg-beta"), `Expected pkg-beta in global index:\n${globalIndex}`);
     assert.ok(!globalIndex.includes("pkg-tiny"), `Did not expect pkg-tiny in global index:\n${globalIndex}`);
