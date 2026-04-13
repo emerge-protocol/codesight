@@ -40,7 +40,7 @@ export type Framework =
   | "angular"
   | "unknown";
 
-export type ORM = "drizzle" | "prisma" | "typeorm" | "sqlalchemy" | "django" | "gorm" | "mongoose" | "sequelize" | "activerecord" | "ecto" | "eloquent" | "entity-framework" | "exposed" | "room" | "unknown";
+export type ORM = "drizzle" | "prisma" | "typeorm" | "sqlalchemy" | "django" | "gorm" | "ent" | "mongoose" | "sequelize" | "activerecord" | "ecto" | "eloquent" | "entity-framework" | "exposed" | "room" | "unknown";
 
 export type ComponentFramework = "react" | "vue" | "svelte" | "flutter" | "jetpack-compose" | "angular" | "unknown";
 
