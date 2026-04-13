@@ -342,3 +342,31 @@ describe("generateMonorepoAIConfigs", () => {
     assert.ok(!generated.includes("CLAUDE.md"), `Should skip existing: ${generated}`);
   });
 });
+
+describe("monorepo --init wiring", () => {
+  it("runMonorepoScan returns the list of scanned packages", async () => {
+    const { runMonorepoScan } = await import("../dist/monorepo/orchestrator.js");
+
+    const dir = await writeFixture("monorepo-return-value", {
+      "pnpm-workspace.yaml": "packages:\n  - packages/**\n",
+      "packages/@test/pkg-ret/package.json": JSON.stringify({ name: "@test/pkg-ret" }),
+      "packages/@test/pkg-ret/src/index.ts": "export const a = 1;",
+      "packages/@test/pkg-ret/src/b.ts": "export const b = 2;",
+      "packages/@test/pkg-ret/src/c.ts": "export const c = 3;",
+      "packages/@test/pkg-ret/src/d.ts": "export const d = 4;",
+      "packages/@test/pkg-ret/src/e.ts": "export const e = 5;",
+      "packages/@test/pkg-ret/src/f.ts": "export const f = 6;",
+      "packages/@test/pkg-ret/src/g.ts": "export const g = 7;",
+      "packages/@test/pkg-ret/src/h.ts": "export const h = 8;",
+      "packages/@test/pkg-ret/src/i.ts": "export const i = 9;",
+      "packages/@test/pkg-ret/src/j.ts": "export const j = 10;",
+      "packages/@test/pkg-ret/src/k.ts": "export const k = 11;",
+    });
+
+    const result = await runMonorepoScan(dir, { monorepo: { enabled: true, minFiles: 10 } });
+
+    assert.ok(Array.isArray(result), "Should return an array");
+    assert.equal(result.length, 1);
+    assert.equal(result[0].name, "@test/pkg-ret");
+  });
+});

@@ -381,7 +381,14 @@ async function main() {
       return;
     }
     const { runMonorepoScan } = await import("./monorepo/orchestrator.js");
-    await runMonorepoScan(root, config);
+    const scannedPackages = await runMonorepoScan(root, config);
+    if (doInit) {
+      const { generateMonorepoAIConfigs } = await import("./generators/ai-config.js");
+      const generated = await generateMonorepoAIConfigs(root, scannedPackages, outputDirName);
+      if (generated.length > 0) {
+        console.log(`  Generated: ${generated.join(", ")}`);
+      }
+    }
     return;
   }
 
