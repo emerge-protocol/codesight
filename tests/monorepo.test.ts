@@ -292,3 +292,53 @@ describe("CLI --refresh flag", () => {
     assert.equal(typeof runMonorepoScan, "function");
   });
 });
+
+describe("generateMonorepoAIConfigs", () => {
+  it("creates CLAUDE.md with package count and index reference", async () => {
+    const { generateMonorepoAIConfigs } = await import("../dist/generators/ai-config.js");
+    const { existsSync, readFileSync } = await import("node:fs");
+
+    const dir = await writeFixture("monorepo-init", {
+      // no CLAUDE.md yet
+    });
+
+    const packages = [
+      { name: "@test/pkg-a", dir: join(dir, "packages/@test/pkg-a") },
+      { name: "@test/pkg-b", dir: join(dir, "packages/@test/pkg-b") },
+    ];
+
+    const generated = await generateMonorepoAIConfigs(dir, packages, ".codesight");
+
+    assert.ok(generated.includes("CLAUDE.md"), `Expected CLAUDE.md in generated: ${generated}`);
+    const content = readFileSync(join(dir, "CLAUDE.md"), "utf-8");
+    assert.ok(content.includes("2 packages"), `Expected package count: ${content}`);
+    assert.ok(content.includes(".codesight/CODESIGHT.md"), `Expected index ref: ${content}`);
+  });
+
+  it("appends to existing CLAUDE.md that has no codesight reference", async () => {
+    const { generateMonorepoAIConfigs } = await import("../dist/generators/ai-config.js");
+    const { readFileSync } = await import("node:fs");
+
+    const dir = await writeFixture("monorepo-init-append", {
+      "CLAUDE.md": "# My Project\n\nSome existing content.\n",
+    });
+
+    await generateMonorepoAIConfigs(dir, [{ name: "@test/pkg-a", dir: join(dir, "pkg-a") }], ".codesight");
+
+    const content = readFileSync(join(dir, "CLAUDE.md"), "utf-8");
+    assert.ok(content.includes("My Project"), "Should preserve existing content");
+    assert.ok(content.includes(".codesight/CODESIGHT.md"), "Should append codesight section");
+  });
+
+  it("skips CLAUDE.md that already references codesight", async () => {
+    const { generateMonorepoAIConfigs } = await import("../dist/generators/ai-config.js");
+
+    const dir = await writeFixture("monorepo-init-skip", {
+      "CLAUDE.md": "# My Project\n\nRead .codesight/CODESIGHT.md for context.\n",
+    });
+
+    const generated = await generateMonorepoAIConfigs(dir, [], ".codesight");
+
+    assert.ok(!generated.includes("CLAUDE.md"), `Should skip existing: ${generated}`);
+  });
+});
