@@ -391,10 +391,12 @@ function extractIamPermissions(blocks: HclBlock[]): string[] {
     const statements = block.nestedBlocks["statement"];
     if (statements) {
       for (const stmt of statements) {
-        const actions = stmt.attributes["actions"] ?? stmt.attributes["effect"];
-        const resources = stmt.attributes["resources"];
+        const actions = stmt.attributes["actions"] ?? stmt.attributes["action"];
+        const resources = stmt.attributes["resources"] ?? stmt.attributes["resource"];
         if (actions) {
-          permissions.push(`${actions}${resources ? ` on ${resources}` : ""}`);
+          const effect = stmt.attributes["effect"];
+          const prefix = effect ? `${effect}: ` : "";
+          permissions.push(`${prefix}${actions}${resources ? ` on ${resources}` : ""}`);
         }
       }
     }

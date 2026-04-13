@@ -8,13 +8,14 @@
   },
   "exports": {
     ".": "./dist/index.js",
-    "./plugins/terraform": "./dist/plugins/terraform/index.js"
+    "./plugins/terraform": "./dist/plugins/terraform/index.js",
+    "./dist/*": "./dist/*"
   },
   "type": "module",
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
-    "test": "pnpm build && tsx --test tests/detectors.test.ts",
+    "test": "pnpm build && tsx --test tests/*.test.ts",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [

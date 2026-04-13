@@ -37,8 +37,21 @@ export function stripComments(content: string): string {
   let i = 0;
   let inBlockComment = false;
   let inString = false;
+  let heredocDelimiter: string | null = null;
 
   while (i < content.length) {
+    // Inside heredoc: pass through verbatim until closing delimiter
+    if (heredocDelimiter !== null) {
+      const lineEnd = content.indexOf("\n", i);
+      const line = lineEnd === -1 ? content.slice(i) : content.slice(i, lineEnd);
+      if (line.trim() === heredocDelimiter) {
+        heredocDelimiter = null;
+      }
+      result.push(lineEnd === -1 ? line : line + "\n");
+      i = lineEnd === -1 ? content.length : lineEnd + 1;
+      continue;
+    }
+
     // Inside block comment: scan for */
     if (inBlockComment) {
       if (content[i] === "*" && content[i + 1] === "/") {
@@ -71,6 +84,25 @@ export function stripComments(content: string): string {
       result.push(ch);
       i++;
       continue;
+    }
+
+    // Heredoc start: <<EOF or <<-EOF
+    if (ch === "<" && content[i + 1] === "<") {
+      const rest = content.slice(i + 2);
+      const heredocMatch = rest.match(/^-?\s*(\w+)/);
+      if (heredocMatch) {
+        const marker = content.slice(i, i + 2 + heredocMatch[0].length);
+        result.push(marker);
+        heredocDelimiter = heredocMatch[1];
+        i += 2 + heredocMatch[0].length;
+        // Advance to next line
+        const nl = content.indexOf("\n", i);
+        if (nl !== -1) {
+          result.push(content.slice(i, nl + 1));
+          i = nl + 1;
+        }
+        continue;
+      }
     }
 
     // Block comment start
