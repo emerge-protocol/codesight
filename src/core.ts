@@ -14,9 +14,12 @@ import { detectEvents } from "./detectors/events.js";
 import { detectTestCoverage } from "./detectors/coverage.js";
 import { detectOpenAPISpec } from "./detectors/openapi.js";
 import { writeOutput, computeCrudGroups } from "./formatter.js";
+import { createRequire } from "node:module";
 import type { ScanResult, CodesightConfig } from "./types.js";
 
-export const VERSION = "1.12.0";
+const _require = createRequire(import.meta.url);
+const _pkg = _require("../package.json") as { version: string };
+export const VERSION: string = _pkg.version;
 export const BRAND = "codesight";
 
 export async function scan(
