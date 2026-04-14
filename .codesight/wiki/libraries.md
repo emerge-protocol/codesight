@@ -2,7 +2,7 @@
 
 > **Navigation aid.** Library inventory extracted via AST. Read the source files listed here before modifying exported functions.
 
-**35 library files** across 9 modules
+**40 library files** across 11 modules
 
 ## Detectors (15 files)
 
@@ -30,21 +30,32 @@
 - `src/ast/extract-csharp.ts` — extractAspNetControllerRoutes, extractAspNetMinimalApiRoutes, extractEntityFrameworkModels, extractCSharpExports
 - `src/ast/extract-components.ts` — extractReactComponentsAST, ComponentName, ComponentName
 - `src/ast/extract-dart.ts` — extractFlutterRoutes, extractFlutterWidgets, extractDartExports
+- `src/ast/extract-go.ts` — extractGoRoutesStructured, extractGORMModelsStructured, extractEntSchemasStructured
 - `src/ast/extract-php.ts` — extractLaravelRoutes, extractEloquentModels, extractPhpExports
 - `src/ast/extract-swift.ts` — extractVaporRoutes, extractSwiftUIViews, extractSwiftExports
-- `src/ast/extract-go.ts` — extractGoRoutesStructured, extractGORMModelsStructured
 - `src/ast/extract-schema.ts` — extractDrizzleSchemaAST, extractTypeORMSchemaAST
 - `src/ast/extract-routes.ts` — extractRoutesAST
+
+## Monorepo (4 files)
+
+- `src/monorepo/deps.ts` — extractCrossPackageDeps, writeDepsFile
+- `src/monorepo/discover.ts` — discoverPackages, PackageInfo
+- `src/monorepo/orchestrator.ts` — runMonorepoScan
+- `src/monorepo/watch.ts` — watchMonorepo
 
 ## Generators (3 files)
 
 - `src/generators/wiki.ts` — generateWiki, readWikiArticle, listWikiArticles, lintWiki, WikiResult
-- `src/generators/ai-config.ts` — generateAIConfigs, generateProfileConfig
+- `src/generators/ai-config.ts` — generateAIConfigs, generateProfileConfig, generateMonorepoAIConfigs
 - `src/generators/html-report.ts` — generateHtmlReport
 
 ## Config.ts (1 files)
 
 - `src/config.ts` — loadConfig, mergeCliConfig
+
+## Core.ts (1 files)
+
+- `src/core.ts` — scan, VERSION, BRAND
 
 ## Eval.ts (1 files)
 

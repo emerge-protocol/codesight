@@ -2,6 +2,8 @@
 
 ### Your AI assistant wastes thousands of tokens every conversation just figuring out your project. codesight fixes that in one command.
 
+**4,000+ downloads and counting.**
+
 **Zero dependencies. AST precision. 30+ framework detectors. 13 ORM parsers. 13 MCP tools. One `npx` call.**
 
 **Works with TypeScript, JavaScript, Python, Go, Ruby, Elixir, Java, Kotlin, Rust, PHP, Dart, Swift, and C#.** TypeScript projects get full AST precision. Everything else uses battle-tested regex detection across the same 30+ frameworks.

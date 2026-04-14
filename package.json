@@ -1,6 +1,6 @@
 {
   "name": "codesight",
-  "version": "1.12.2",
+  "version": "1.12.4",
   "description": "See your codebase clearly. Universal AI context generator that maps routes, schema, components, dependencies, and more for Claude Code, Cursor, Copilot, Codex, and any AI coding tool.",
   "main": "dist/index.js",
   "bin": {
@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
-    "test": "pnpm build && tsx --test tests/detectors.test.ts tests/wiki.test.ts",
+    "test": "pnpm build && tsx --test tests/detectors.test.ts tests/wiki.test.ts tests/monorepo.test.ts",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [

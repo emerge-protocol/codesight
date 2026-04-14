@@ -19,7 +19,10 @@
   - function extractFlutterRoutes: (filePath, content, tags) => RouteInfo[]
   - function extractFlutterWidgets: (filePath, content) => ComponentInfo[]
   - function extractDartExports: (content) => ExportItem[]
-- `src/ast/extract-go.ts` — function extractGoRoutesStructured: (filePath, content, framework, tags) => RouteInfo[], function extractGORMModelsStructured: (_filePath, content) => SchemaModel[]
+- `src/ast/extract-go.ts`
+  - function extractGoRoutesStructured: (filePath, content, framework, tags) => RouteInfo[]
+  - function extractGORMModelsStructured: (_filePath, content) => SchemaModel[]
+  - function extractEntSchemasStructured: (_filePath, content) => SchemaModel[]
 - `src/ast/extract-php.ts`
   - function extractLaravelRoutes: (filePath, content, tags) => RouteInfo[]
   - function extractEloquentModels: (_filePath, content) => SchemaModel[]
@@ -44,6 +47,10 @@
   - function parseDecorator: (ts, sf, decorator) => void
   - function getText: (sf, node) => string
 - `src/config.ts` — function loadConfig: (root) => Promise<CodesightConfig>, function mergeCliConfig: (config, cli) => CodesightConfig
+- `src/core.ts`
+  - function scan: (root, outputDirName, maxDepth, userConfig, quiet) => Promise<ScanResult>
+  - const VERSION: string
+  - const BRAND
 - `src/detectors/blast-radius.ts` — function analyzeBlastRadius: (filePath, result, maxDepth) => BlastRadiusResult, function analyzeMultiFileBlastRadius: (files, result, maxDepth) => BlastRadiusResult
 - `src/detectors/components.ts` — function detectComponents: (files, project) => Promise<ComponentInfo[]>, function ComponentName: (starts with uppercase) => void
 - `src/detectors/config.ts` — function detectConfig: (files, project) => Promise<ConfigInfo>
@@ -75,7 +82,10 @@
   - function computeCrudGroups: (routes) => import("./types.js").CrudGroup[]
   - function formatKnowledge: (map, projectName, version) => string
   - function writeKnowledgeOutput: (map, outputDir, projectName, version) => Promise<string>
-- `src/generators/ai-config.ts` — function generateAIConfigs: (result, root) => Promise<string[]>, function generateProfileConfig: (result, root, profile) => Promise<string>
+- `src/generators/ai-config.ts`
+  - function generateAIConfigs: (result, root) => Promise<string[]>
+  - function generateProfileConfig: (result, root, profile) => Promise<string>
+  - function generateMonorepoAIConfigs: (root, packages, outputDirName) => Promise<string[]>
 - `src/generators/html-report.ts` — function generateHtmlReport: (result, outputDir) => Promise<string>
 - `src/generators/wiki.ts`
   - function generateWiki: (result, outputDir) => Promise<WikiResult>
@@ -84,6 +94,10 @@
   - function lintWiki: (result, outputDir) => Promise<string>
   - interface WikiResult
 - `src/mcp-server.ts` — function startMCPServer: () => void
+- `src/monorepo/deps.ts` — function extractCrossPackageDeps: (packageDir, workspacePackageNames) => Promise<string[]>, function writeDepsFile: (packageDir, deps, outputDirName) => Promise<void>
+- `src/monorepo/discover.ts` — function discoverPackages: (root, config) => Promise<PackageInfo[]>, interface PackageInfo
+- `src/monorepo/orchestrator.ts` — function runMonorepoScan: (root, userConfig, targetPackage?) => Promise<PackageInfo[]>
+- `src/monorepo/watch.ts` — function watchMonorepo: (root, userConfig) => Promise<void>
 - `src/scanner.ts`
   - function readCodesightIgnore: (root) => Promise<string[]>
   - function loadFileHashCache: (outputDir) => Promise<FileHashCache>
