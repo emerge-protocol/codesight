@@ -37,6 +37,8 @@ const IGNORE_DIRS = new Set([
   "deps",      // Elixir / mix — equivalent to node_modules for Phoenix/Ecto projects
   "_build",    // Elixir / mix — compiled .beam artifacts, analogous to `dist`/`build`
   "target",    // Rust / cargo — build output, compiled binaries + cached deps
+  ".roku-deploy-staging", // Roku / roku-deploy — staging artifacts
+  "roku_modules",        // Roku / ropm — third-party dependencies, analogous to node_modules
 ]);
 
 const CODE_EXTENSIONS = new Set([
@@ -60,6 +62,9 @@ const CODE_EXTENSIONS = new Set([
   ".dart",
   ".swift",
   ".cs",
+  ".brs",
+  ".bs",
+  ".xml",
   // Additional file types for new detectors
   ".graphql",
   ".gql",
@@ -155,7 +160,13 @@ export async function collectFiles(
         await walk(fullPath, depth + 1);
       } else if (entry.isFile()) {
         const ext = extname(entry.name);
-        if (CODE_EXTENSIONS.has(ext) || entry.name === ".env" || entry.name === ".env.example" || entry.name === ".env.local") {
+        if (
+          CODE_EXTENSIONS.has(ext) ||
+          entry.name === ".env" ||
+          entry.name === ".env.example" ||
+          entry.name === ".env.local" ||
+          entry.name === "manifest"
+        ) {
           files.push(fullPath);
         }
       }
@@ -266,6 +277,7 @@ export async function detectProject(root: string): Promise<ProjectInfo> {
       actix: "rust", axum: "rust",
       aspnet: "csharp",
       gin: "go", fiber: "go", echo: "go", chi: "go", "go-net-http": "go",
+      "roku-scenegraph": "brightscript",
     };
     const wsLangs = new Set<string>();
     if (language === "typescript" || language === "javascript" || allDeps["react"] || allDeps["typescript"]) {
@@ -291,7 +303,7 @@ export async function detectProject(root: string): Promise<ProjectInfo> {
     "nestjs", "elysia", "adonis", "trpc", "sveltekit", "remix", "nuxt",
     "raw-http", "angular",
   ]);
-  const nonJSLangs = new Set(["go", "python", "ruby", "elixir", "java", "kotlin", "rust", "php", "dart", "swift", "csharp"]);
+  const nonJSLangs = new Set(["go", "python", "ruby", "elixir", "java", "kotlin", "rust", "php", "dart", "swift", "csharp", "brightscript"]);
   if (nonJSLangs.has(language) && frameworks.some((f) => !jsOnlyFrameworks.has(f))) {
     frameworks = frameworks.filter((f) => !jsOnlyFrameworks.has(f));
   }
@@ -313,6 +325,25 @@ async function discoverImplicitWorkspaces(
   repoRoot: string,
   workspaces: WorkspaceInfo[]
 ): Promise<void> {
+  // Roku multi-channel monorepo: signal requires roku-deploy + a
+  // `common/` + >=2 sibling-channel structure. Won't fire on the 90% single-
+  // channel case or on non-Roku repos that happen to have a `manifest` file.
+  try {
+    const rokuMono = await detectRokuMonorepo(repoRoot);
+    if (rokuMono) {
+      // Each channel dir becomes a workspace. The `common/` dir isn't a
+      // shippable channel, but it contains the bulk of the shared code —
+      // register it as a workspace too so its components/schemas show up.
+      const dirs = [rokuMono.commonDir, ...rokuMono.channelDirs];
+      for (const dir of dirs) {
+        const wsInfo = await detectNonJSWorkspace(repoRoot, dir, basename(dir));
+        if (wsInfo && !workspaces.some((w) => w.path === wsInfo.path)) {
+          workspaces.push(wsInfo);
+        }
+      }
+    }
+  } catch {}
+
   try {
     const topDirs = await readdir(repoRoot, { withFileTypes: true });
     for (const d of topDirs) {
@@ -405,6 +436,9 @@ async function hasDirectWorkspaceManifest(dir: string): Promise<boolean> {
   for (const manifest of directManifestNames) {
     if (await fileExists(join(dir, manifest))) return true;
   }
+
+  // Roku channel — plain-text `manifest` file at dir root
+  if (await hasRokuManifest(dir)) return true;
 
   try {
     const entries = await readdir(dir);
@@ -614,6 +648,13 @@ async function detectFrameworks(
     } catch {}
   }
 
+  // Roku / SceneGraph — plain-text `manifest` file at root with title + major_version.
+  // Also matches the rokucommunity/brighterscript-template layout where the
+  // manifest lives under `src/` and root carries a bsconfig.json marker.
+  if (await hasRokuManifest(root) || await detectBrighterScriptTemplateRoot(root)) {
+    frameworks.push("roku-scenegraph");
+  }
+
   // Android
   const hasAndroidManifest =
     (await fileExists(join(root, "app", "src", "main", "AndroidManifest.xml"))) ||
@@ -713,6 +754,13 @@ async function detectORMs(
   const androidDeps = await getAndroidDeps(root);
   if (androidDeps.some((d) => d.includes("androidx.room"))) orms.push("room");
 
+  // Roku / SceneGraph — every SceneGraph component's <interface> is a typed
+  // contract (name + typed fields), which is the core "schema model" notion
+  // codesight expresses. Auto-add whenever the Roku channel is detected.
+  if (await hasRokuManifest(root) || await detectBrighterScriptTemplateRoot(root)) {
+    orms.push("scenegraph");
+  }
+
   // Entity Framework (ASP.NET) — check all csproj files
   const allCsprojForOrm = await findAllCsproj(root);
   for (const cp of allCsprojForOrm) {
@@ -738,13 +786,14 @@ function detectComponentFramework(
   if (frameworks.includes("flutter")) return "flutter";
   if (frameworks.includes("android")) return "jetpack-compose";
   if (frameworks.includes("angular")) return "angular";
+  if (frameworks.includes("roku-scenegraph")) return "scenegraph";
   return "unknown";
 }
 
 async function detectLanguage(
   root: string,
   deps: Record<string, string>
-): Promise<"typescript" | "javascript" | "python" | "go" | "ruby" | "elixir" | "java" | "kotlin" | "rust" | "php" | "dart" | "swift" | "csharp" | "mixed"> {
+): Promise<"typescript" | "javascript" | "python" | "go" | "ruby" | "elixir" | "java" | "kotlin" | "rust" | "php" | "dart" | "swift" | "csharp" | "brightscript" | "mixed"> {
   const hasTsConfig = await fileExists(join(root, "tsconfig.json"));
   const hasPyProject = await fileExists(join(root, "pyproject.toml")) || await fileExists(join(root, "backend/pyproject.toml"));
   const hasGoMod = await fileExists(join(root, "go.mod"));
@@ -768,6 +817,7 @@ async function detectLanguage(
   const hasCsproj = await (async () => {
     try { return (await readdir(root)).some((e) => e.endsWith(".csproj") || e.endsWith(".sln")); } catch { return false; }
   })();
+  const hasRokuChannel = await hasRokuManifest(root) || await detectBrighterScriptTemplateRoot(root);
 
   const langs: string[] = [];
   if (hasTsConfig || deps["typescript"]) langs.push("typescript");
@@ -782,10 +832,11 @@ async function detectLanguage(
   if (hasPubspec) langs.push("dart");
   if (hasPackageSwift) langs.push("swift");
   if (hasCsproj) langs.push("csharp");
+  if (hasRokuChannel) langs.push("brightscript");
 
   if (langs.length > 1) {
     const primaryManifests: string[] = [
-      "go", "rust", "ruby", "elixir", "swift", "dart", "csharp", "java", "kotlin", "php", "python",
+      "go", "rust", "ruby", "elixir", "swift", "dart", "csharp", "java", "kotlin", "php", "python", "brightscript",
     ];
     const primary = langs.filter((l) => primaryManifests.includes(l));
     if (primary.length === 1) return primary[0] as any;
@@ -800,6 +851,7 @@ async function detectLanguage(
     if (entries.some((e) => e.endsWith(".swift"))) return "swift";
     if (entries.some((e) => e.endsWith(".cs"))) return "csharp";
     if (entries.some((e) => e.endsWith(".dart"))) return "dart";
+    if (entries.some((e) => e.endsWith(".brs") || e.endsWith(".bs"))) return "brightscript";
   } catch {}
 
   return "javascript";
@@ -976,6 +1028,12 @@ async function detectNonJSWorkspace(
       if (gemfile.includes("rails")) frameworks.push("rails");
       if (gemfile.includes("activerecord") || gemfile.includes("rails")) orms.push("activerecord");
     } catch {}
+  }
+
+  // Roku / SceneGraph (workspace-level) — channel dir with plain `manifest` file
+  if (await hasRokuManifest(wsPath)) {
+    frameworks.push("roku-scenegraph");
+    orms.push("scenegraph");
   }
 
   if (frameworks.length === 0) return null;
@@ -1234,6 +1292,146 @@ async function findAllCsproj(dir: string, depth = 0, results: string[] = []): Pr
     }
   } catch {}
   return results;
+}
+
+/**
+ * Check whether a directory looks like a Roku channel.
+ *
+ * Roku apps are anchored by a plain text file named `manifest` (no extension)
+ * at the channel root, containing key=value lines including `title=` and
+ * `major_version=`. This is the definitive Roku signal — no other ecosystem
+ * uses this exact pattern, so no secondary signals are needed.
+ */
+export async function hasRokuManifest(dir: string): Promise<boolean> {
+  const manifestPath = join(dir, "manifest");
+  try {
+    const s = await stat(manifestPath);
+    if (!s.isFile()) return false;
+    const content = await readFile(manifestPath, "utf-8");
+    return /^\s*title\s*=/m.test(content) && /^\s*major_version\s*=/m.test(content);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Detect the `rokucommunity/brighterscript-template` layout:
+ *   - no manifest at root
+ *   - bsconfig.json at root (BrighterScript project marker)
+ *   - exactly one `src/manifest` with the standard channel signature
+ *
+ * Treat the root as a single Roku channel rooted at `src/`. Prevents the
+ * generic monorepo walker from promoting `src/` to a workspace and leaving
+ * the root framework as `raw-http`.
+ */
+export async function detectBrighterScriptTemplateRoot(dir: string): Promise<boolean> {
+  if (await hasRokuManifest(dir)) return false;
+  const bsConfigPath = join(dir, "bsconfig.json");
+  try {
+    await stat(bsConfigPath);
+  } catch {
+    return false;
+  }
+  return hasRokuManifest(join(dir, "src"));
+}
+
+/**
+ * Detect a Roku multi-channel monorepo layout. 90% of Roku repos are
+ * single-channel (manifest at root), but a small set of larger codebases
+ * ship multiple channels from one repo using `roku-deploy` + `gulp` to merge
+ * per-channel assets with a shared `common/` layer at build time.
+ *
+ * Required signals (all must hold):
+ *   1. No manifest at `root` (otherwise it's a standard single-channel repo)
+ *   2. `root/package.json` declares `roku-deploy` in deps or devDeps
+ *   3. Some container dir `C` contains:
+ *        - a `common/` subdirectory, AND
+ *        - at least 2 sibling directories of `common/` that each have their
+ *          own `manifest` file
+ *
+ * When these match, returns `{ containerDir, channelDirs, commonDir }`.
+ * Otherwise returns null and the caller treats the repo as single-channel
+ * (or not a Roku repo at all).
+ */
+export async function detectRokuMonorepo(
+  root: string
+): Promise<{ containerDir: string; channelDirs: string[]; commonDir: string } | null> {
+  // Signal 1: no root manifest
+  if (await hasRokuManifest(root)) return null;
+
+  // Signal 2: roku-deploy in package.json
+  try {
+    const pkgRaw = await readFile(join(root, "package.json"), "utf-8");
+    const pkg = JSON.parse(pkgRaw) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+    const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+    if (!deps["roku-deploy"]) return null;
+  } catch {
+    return null;
+  }
+
+  // Signal 3: find a container dir with common/ + >=2 sibling channels.
+  // Limit search to shallow depth; the common-plus-channels layout is always
+  // near the top of the repo tree (usually at root or one level down).
+  const skip = new Set([
+    "node_modules", ".git", "out", "dist", "build",
+    ".roku-deploy-staging", "roku_modules", ".gradle",
+  ]);
+
+  const visit = async (dir: string): Promise<{ containerDir: string; channelDirs: string[]; commonDir: string } | null> => {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return null;
+    }
+
+    const subdirs = entries.filter(
+      (e) => e.isDirectory() && !e.name.startsWith(".") && !skip.has(e.name) && !IGNORE_DIRS.has(e.name)
+    );
+    const commonDir = subdirs.find((e) => e.name.toLowerCase() === "common");
+    if (commonDir) {
+      const channelDirs: string[] = [];
+      for (const sub of subdirs) {
+        if (sub === commonDir) continue;
+        if (await hasRokuManifest(join(dir, sub.name))) {
+          channelDirs.push(join(dir, sub.name));
+        }
+      }
+      if (channelDirs.length >= 2) {
+        return {
+          containerDir: dir,
+          channelDirs,
+          commonDir: join(dir, commonDir.name),
+        };
+      }
+    }
+    return null;
+  };
+
+  // Try root first, then common one-level-deep parents (e.g. `src/apps/`).
+  const hit = await visit(root);
+  if (hit) return hit;
+  try {
+    const topEntries = await readdir(root, { withFileTypes: true });
+    for (const e of topEntries) {
+      if (!e.isDirectory() || e.name.startsWith(".") || skip.has(e.name) || IGNORE_DIRS.has(e.name)) continue;
+      const firstLevel = join(root, e.name);
+      const firstHit = await visit(firstLevel);
+      if (firstHit) return firstHit;
+      // One more level — covers e.g. `src/apps/` where `src/` itself holds the container.
+      try {
+        const nested = await readdir(firstLevel, { withFileTypes: true });
+        for (const n of nested) {
+          if (!n.isDirectory() || n.name.startsWith(".") || skip.has(n.name) || IGNORE_DIRS.has(n.name)) continue;
+          const secondLevel = join(firstLevel, n.name);
+          const secondHit = await visit(secondLevel);
+          if (secondHit) return secondHit;
+        }
+      } catch {}
+    }
+  } catch {}
+
+  return null;
 }
 
 async function fileExists(path: string): Promise<boolean> {

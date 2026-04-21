@@ -35,15 +35,17 @@ export type Framework =
   | "swiftui"
   | "flutter"
   | "android"
+  | "roku-scenegraph"
   | "graphql"
   | "grpc"
   | "websocket"
   | "angular"
   | "unknown";
 
-export type ORM = "drizzle" | "prisma" | "typeorm" | "sqlalchemy" | "django" | "gorm" | "ent" | "mongoose" | "sequelize" | "activerecord" | "ecto" | "eloquent" | "entity-framework" | "exposed" | "room" | "unknown";
+export type ORM = "drizzle" | "prisma" | "typeorm" | "sqlalchemy" | "django" | "gorm" | "ent" | "mongoose" | "sequelize" | "activerecord" | "ecto" | "eloquent" | "entity-framework" | "exposed" | "room" | "scenegraph" | "unknown";
 
-export type ComponentFramework = "react" | "vue" | "svelte" | "flutter" | "jetpack-compose" | "angular" | "unknown";
+export type ComponentFramework = "react" | "vue" | "svelte" | "flutter" | "jetpack-compose" | "angular" | "scenegraph" | "unknown";
+
 
 export type KnowledgeNoteType = "decision" | "meeting" | "retro" | "spec" | "backlog" | "research" | "session" | "general";
 
@@ -83,7 +85,7 @@ export interface ProjectInfo {
   isMonorepo: boolean;
   repoType: RepoType;
   workspaces: WorkspaceInfo[];
-  language: "typescript" | "javascript" | "python" | "go" | "ruby" | "elixir" | "java" | "kotlin" | "rust" | "php" | "dart" | "swift" | "csharp" | "mixed";
+  language: "typescript" | "javascript" | "python" | "go" | "ruby" | "elixir" | "java" | "kotlin" | "rust" | "php" | "dart" | "swift" | "csharp" | "brightscript" | "mixed";
 }
 
 export interface WorkspaceInfo {
@@ -215,6 +217,13 @@ export interface CodesightConfig {
   plugins?: CodesightPlugin[];
   /** Monorepo configuration */
   monorepo?: MonorepoConfig;
+  /**
+   * Roku only: helper names used in BRS to open a screen/view. Defaults to
+   * ["ShowScreen", "showScreen", "pushScreen", "PushScreen", "NavigateTo",
+   *  "navigateTo", "showView", "ShowView"]. Override when your project uses
+   * a different navigation helper convention.
+   */
+  rokuScreenHelpers?: string[];
 }
 
 export interface CodesightPlugin {
@@ -240,7 +249,7 @@ export interface PluginDetectorResult {
 export interface EventInfo {
   name: string;
   type: "queue" | "topic" | "event" | "channel";
-  system: "bullmq" | "kafka" | "redis-pub-sub" | "socket.io" | "eventemitter" | "celery" | "unknown";
+  system: "bullmq" | "kafka" | "redis-pub-sub" | "socket.io" | "eventemitter" | "celery" | "scenegraph-observer" | "rudderstack" | "unknown";
   file: string;
   payloadType?: string;
 }

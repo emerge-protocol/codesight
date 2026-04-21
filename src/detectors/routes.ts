@@ -138,6 +138,9 @@ export async function detectRoutes(
       case "angular":
         routes.push(...(await detectAngularRoutes(files, project)));
         break;
+      case "roku-scenegraph":
+        routes.push(...(await detectRokuScreens(files, project, config)));
+        break;
     }
   }
 
@@ -1585,6 +1588,158 @@ async function detectAngularRoutes(
         framework: "angular",
         confidence: "regex",
       });
+    }
+  }
+
+  return routes;
+}
+
+// ─── Roku SceneGraph: screen navigation ───────────────────────────────────────
+//
+// Roku apps are client-side; "routes" map to screens the user can navigate
+// to. The one convention every SceneGraph app shares is that a Scene XML
+// declares its view slots in `<children>`:
+//
+//   <component name="MainScene" extends="Scene">
+//     <children>
+//       <HomeView id="homeView" />
+//       <LoginView id="loginView" />
+//     </children>
+//   </component>
+//
+// Each child with an `id` attribute is one screen, regardless of how the app
+// navigates to it (toggle visible, custom helper, Kopytko router, etc.).
+//
+// We then OPTIONALLY enrich routes by scanning paired BRS for helper calls
+// like `ShowScreen(m.homeView, true)`. When found with a literal `true`
+// second argument, the matching route is flipped from VIEW to MODAL. Helper
+// names are configurable via `CodesightConfig.rokuScreenHelpers` with a
+// sensible default set that covers the common conventions.
+
+const DEFAULT_ROKU_SCREEN_HELPERS = [
+  "ShowScreen",
+  "showScreen",
+  "pushScreen",
+  "PushScreen",
+  "NavigateTo",
+  "navigateTo",
+  "showView",
+  "ShowView",
+];
+
+async function detectRokuScreens(
+  files: string[],
+  project: ProjectInfo,
+  config?: CodesightConfig
+): Promise<RouteInfo[]> {
+  const { extractSceneGraphComponent, extractMainSceneScreens, isSceneGraphXml } =
+    await import("../ast/extract-scenegraph.js");
+  const { extractBrightScriptNavigationCalls, extractFindNodeBindings } =
+    await import("../ast/extract-brightscript.js");
+
+  const xmlFiles = files.filter((f) => f.endsWith(".xml"));
+  const brsFiles = files.filter((f) => f.endsWith(".brs") || f.endsWith(".bs"));
+  const helperNames = config?.rokuScreenHelpers ?? DEFAULT_ROKU_SCREEN_HELPERS;
+
+  // Build a map of SceneGraph component name -> relative XML file path so
+  // view slots (e.g. `<HomeView id="homeView"/>`) resolve to the XML that
+  // implements the view (e.g. `components/views/HomeView.xml`).
+  const componentToFile = new Map<string, string>();
+  const sceneXmls: { file: string; content: string; name: string }[] = [];
+
+  for (const file of xmlFiles) {
+    const content = await readFileSafe(file);
+    if (!content || !isSceneGraphXml(content)) continue;
+    const comp = extractSceneGraphComponent(content);
+    if (!comp) continue;
+    const rel = relative(project.root, file).replace(/\\/g, "/");
+    componentToFile.set(comp.name, rel);
+    if (comp.extendsType.toLowerCase() === "scene" || comp.name.toLowerCase().endsWith("scene")) {
+      sceneXmls.push({ file: rel, content, name: comp.name });
+    }
+  }
+
+  const routes: RouteInfo[] = [];
+  const seen = new Map<string, RouteInfo>(); // key: path — lets us upgrade VIEW -> MODAL later
+
+  for (const scene of sceneXmls) {
+    const slotToType = extractMainSceneScreens(scene.content);
+
+    // Primary: every child id becomes a screen, regardless of how the app
+    // opens it. This is the robust, universal signal.
+    for (const [slot, componentType] of Object.entries(slotToType)) {
+      const routeFile = componentToFile.get(componentType) ?? scene.file;
+      const path = `/${slot}`;
+      if (seen.has(path)) continue;
+      const route: RouteInfo = {
+        method: "VIEW",
+        path,
+        file: routeFile,
+        tags: [],
+        framework: "roku-scenegraph",
+        confidence: "regex",
+      };
+      seen.set(path, route);
+      routes.push(route);
+    }
+
+    // Find the paired .brs/.bs — same directory + same stem.
+    const stem = scene.file.replace(/\.xml$/i, "");
+    const pairedBrs = brsFiles.find((f) => {
+      const rel = relative(project.root, f).replace(/\\/g, "/").replace(/\.(brs|bs)$/i, "");
+      return rel === stem;
+    });
+
+    const brsSources: { file: string; content: string }[] = [];
+    if (pairedBrs) {
+      const pc = await readFileSafe(pairedBrs);
+      if (pc) brsSources.push({ file: pairedBrs, content: pc });
+    }
+
+    // Optional enrichment: scan for configurable helper-call patterns in the
+    // paired BRS. Each call site with a literal `true` second arg upgrades
+    // the matching route to MODAL. Missing call-sites don't drop the route.
+    const varToSlot: Record<string, string> = {};
+    for (const src of brsSources) {
+      Object.assign(varToSlot, extractFindNodeBindings(src.content));
+    }
+
+    for (const src of brsSources) {
+      const calls = extractBrightScriptNavigationCalls(src.content, helperNames);
+      const tags = detectTags(src.content);
+      for (const call of calls) {
+        // Resolve `m.homeView` -> slot id "homeView"; fall back to stripping
+        // the `m.` prefix when findNode binding wasn't captured.
+        const slot = varToSlot[call.target] ?? call.target.replace(/^m\./, "");
+        const path = `/${slot}`;
+        const existing = seen.get(path);
+        if (existing) {
+          if (call.modal && existing.method !== "MODAL") {
+            existing.method = "MODAL";
+          }
+          // Merge tags into the existing route
+          for (const tag of tags) {
+            if (!existing.tags.includes(tag)) existing.tags.push(tag);
+          }
+          continue;
+        }
+        // Call-site mentions a slot we didn't discover in <children> — emit
+        // a route for it anyway so custom overlays still appear.
+        const componentType = slotToType[slot];
+        const routeFile = componentType
+          ? (componentToFile.get(componentType) ?? scene.file)
+          : scene.file;
+        const route: RouteInfo = {
+          method: call.modal ? "MODAL" : "VIEW",
+          path,
+          file: routeFile,
+          tags: [...tags],
+          framework: "roku-scenegraph",
+          confidence: "regex",
+        };
+        seen.set(path, route);
+        routes.push(route);
+      }
     }
   }
 

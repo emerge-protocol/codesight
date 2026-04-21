@@ -6,7 +6,7 @@
 
 **Zero dependencies. AST precision. 30+ framework detectors. 13 ORM parsers. 13 MCP tools. One `npx` call.**
 
-**Works with TypeScript, JavaScript, Python, Go, Ruby, Elixir, Java, Kotlin, Rust, PHP, Dart, Swift, and C#.** TypeScript projects get full AST precision. Everything else uses battle-tested regex detection across the same 30+ frameworks.
+**Works with TypeScript, JavaScript, Python, Go, Ruby, Elixir, Java, Kotlin, Rust, PHP, Dart, Swift, C#, and BrightScript/BrighterScript (Roku).** TypeScript projects get full AST precision. Everything else uses battle-tested regex detection across the same 30+ frameworks.
 
 [![npm version](https://img.shields.io/npm/v/codesight?style=for-the-badge&logo=npm&color=CB3837)](https://www.npmjs.com/package/codesight)
 [![npm downloads](https://img.shields.io/npm/dm/codesight?style=for-the-badge&logo=npm&color=blue&label=Monthly%20Downloads)](https://www.npmjs.com/package/codesight)
@@ -487,20 +487,89 @@ Each detector type maps to a measured token cost that an AI would spend to disco
 
 The 1.3x multiplier accounts for AI revisiting files during multi-turn conversations. These estimates are conservative. A developer manually verified that Claude Code spends 40-70K tokens exploring the same projects that codesight summarizes in 3-5K tokens.
 
+## Roku / BrightScript / SceneGraph
+
+codesight treats Roku channels as first-class projects. The `manifest` file at the channel root anchors detection — the same file Roku itself uses to identify a channel, so zero configuration is needed for the common case.
+
+**Standard single-channel layout** (about 90% of Roku repos, matches the Roku docs' getting-started template and projects like `rokucommunity/brighterscript-template`):
+
+```
+/
+  manifest
+  source/         # Main.brs + shared .brs libraries
+  components/     # *.xml + paired *.brs component handlers
+  images/
+```
+
+codesight also recognizes the `rokucommunity/brighterscript-template` layout where the channel lives under `src/` and the root carries a `bsconfig.json` for BrighterScript tooling.
+
+**Multi-channel monorepo layout** (less common — used by larger codebases that ship several branded channels from one repo with `roku-deploy` + `gulp` to merge a shared `common/` layer with per-channel assets at build time):
+
+```
+/
+  package.json      # depends on roku-deploy, gulp
+  gulpfile.js
+  src/apps/
+    common/         # shared layer, merged into every channel at build
+    creatorA/
+      manifest
+    creatorB/
+      manifest
+```
+
+This is detected via a strict structural signal: no manifest at root, `roku-deploy` in deps, and a `common/` directory with at least 2 sibling directories that each have their own `manifest`. When the signal matches, each channel (plus `common/`) is registered as a workspace.
+
+### Mappings to codesight's data model
+
+| codesight concept | Roku equivalent |
+|---|---|
+| Routes | Screens — every child element with an `id` declared in the Scene XML's `<children>`. `method = VIEW` by default, upgraded to `MODAL` if a navigation call-site passes a literal `true` as the second argument. |
+| Schema | Every SceneGraph component XML whose `<interface>` has at least one `<field>` — the typed contract is the model. |
+| Components | Every `<component name="..." extends="...">` XML (views, tasks, scenes, modals). Props = interface fields. |
+| Libraries | `.brs` / `.bs` files outside `components/` — top-level `function`/`sub` plus BrighterScript `class` / `namespace` / `enum` / `interface`. |
+| Middleware | `observeField` subscriptions, `m.global.AddField` registrations. BugsnagTask / RudderstackTask recognized when present. |
+| Dependencies | `<script uri="pkg:/..." />` includes in component XML + `import "pkg:/..."` in `.bs`. |
+| Events | Observed fields (`system: scenegraph-observer`) and Rudderstack event names (`system: rudderstack`). |
+| Config | The Roku `manifest` key/value lines surfaced as `manifest.<name>` pseudo env-vars. |
+
+### Configurable navigation helpers
+
+Many Roku projects use a custom helper to switch the visible screen (names vary: `ShowScreen`, `pushScreen`, `NavigateTo`, `showView`, etc.). These are used as optional enrichment to tag routes as `MODAL`. Defaults cover the common conventions; override with `rokuScreenHelpers` in your codesight config if your project uses a different name:
+
+```json
+{
+  "rokuScreenHelpers": ["Router.push", "openScreen"]
+}
+```
+
+Routes are still detected from `<children>` even when no helper is present or when no call-site matches.
+
+### Example output
+
+```markdown
+- `VIEW` `/homeView` — components/views/HomeView.xml
+- `VIEW` `/detailView` — components/views/DetailView.xml
+- `MODAL` `/errorModal` — components/modals/ErrorModal.xml
+
+### DataTask
+- requestUrl: string
+- response: object
+```
+
 ## Supported Stacks
 
 | Category | Supported |
 |---|---|
-| **Routes** | Hono, Express, Fastify, Next.js (App + Pages), Koa, NestJS, tRPC, Elysia, AdonisJS, SvelteKit, Remix, Nuxt, FastAPI, Flask, Django, Go (net/http, Gin, Fiber, Echo, Chi), Rails, Phoenix, Spring Boot, Ktor, Actix, Axum, Laravel, ASP.NET Core (controllers + minimal API), Vapor, Flutter (go_router), raw http.createServer |
-| **Events** | BullMQ queues, Celery tasks, Kafka topics, Redis pub/sub, Socket.io, EventEmitter |
-| **Schema** | Drizzle, Prisma, TypeORM, Mongoose, Sequelize, SQLAlchemy, Django ORM, ActiveRecord, Ecto, Eloquent, Entity Framework, Exposed (13 ORMs) |
-| **Components** | React, Vue, Svelte, Flutter widgets (StatelessWidget, StatefulWidget, ConsumerWidget), SwiftUI views (auto-filters shadcn/ui and Radix primitives) |
-| **Libraries** | TypeScript, JavaScript, Python, Go, Dart, Swift, C#, PHP (exports with function signatures) |
-| **Middleware** | Auth, rate limiting, CORS, validation, logging, error handlers |
-| **Dependencies** | Import graph with hot file detection (most imported = highest blast radius) |
+| **Routes** | Hono, Express, Fastify, Next.js (App + Pages), Koa, NestJS, tRPC, Elysia, AdonisJS, SvelteKit, Remix, Nuxt, FastAPI, Flask, Django, Go (net/http, Gin, Fiber, Echo, Chi), Rails, Phoenix, Spring Boot, Ktor, Actix, Axum, Laravel, ASP.NET Core (controllers + minimal API), Vapor, Flutter (go_router), Roku SceneGraph (screens via ShowScreen), raw http.createServer |
+| **Events** | BullMQ queues, Celery tasks, Kafka topics, Redis pub/sub, Socket.io, EventEmitter, SceneGraph observers, Rudderstack |
+| **Schema** | Drizzle, Prisma, TypeORM, Mongoose, Sequelize, SQLAlchemy, Django ORM, ActiveRecord, Ecto, Eloquent, Entity Framework, Exposed, Room, SceneGraph `<interface>` contracts (14 ORMs) |
+| **Components** | React, Vue, Svelte, Flutter widgets (StatelessWidget, StatefulWidget, ConsumerWidget), SwiftUI views (auto-filters shadcn/ui and Radix primitives), Roku SceneGraph components |
+| **Libraries** | TypeScript, JavaScript, Python, Go, Dart, Swift, C#, PHP, BrightScript, BrighterScript (exports with function signatures) |
+| **Middleware** | Auth, rate limiting, CORS, validation, logging, error handlers, SceneGraph observers + `m.global` fields |
+| **Dependencies** | Import graph with hot file detection (most imported = highest blast radius); SceneGraph `<script uri="pkg:/...">` and BrighterScript `import` statements |
 | **Contracts** | URL params, request types, response types from route handlers |
-| **Monorepos** | pnpm, npm, yarn workspaces + mixed-language workspaces (e.g. Next.js + Laravel, SwiftUI + Vapor) |
-| **Languages** | TypeScript, JavaScript, Python, Go, Ruby, Elixir, Java, Kotlin, Rust, PHP, Dart, Swift, C# |
+| **Monorepos** | pnpm, npm, yarn workspaces + mixed-language workspaces (e.g. Next.js + Laravel, SwiftUI + Vapor, Roku multi-channel under `src/apps/<creator>/`) |
+| **Languages** | TypeScript, JavaScript, Python, Go, Ruby, Elixir, Java, Kotlin, Rust, PHP, Dart, Swift, C#, BrightScript/BrighterScript |
 
 ## AI Config Generation
 
